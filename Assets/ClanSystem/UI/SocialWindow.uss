@@ -641,12 +641,11 @@
 }
 
 .emoji-grid {
-    flex-direction: row;
-    flex-wrap: wrap;
     max-height: 140px;
 }
 
-.emoji-grid > .unity-scroll-view__content-container {
+/* Two levels below the ScrollView (content-viewport, then this), not a direct child. */
+.emoji-grid .unity-scroll-view__content-container {
     flex-direction: row;
     flex-wrap: wrap;
 }

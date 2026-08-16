@@ -5,6 +5,21 @@ calendar releases.
 
 ## [Unreleased]
 
+### Fixed
+- Emoji picker rendered one emoji per row instead of a wrapping grid. `.emoji-grid > .unity-scroll-view__content-container`
+  matched nothing — Unity's `ScrollView` nests its real content container two levels deep, inside
+  `unity-content-viewport`, under class `unity-scroll-view__content-container`, not as a direct
+  child. Selector fixed to `.emoji-grid .unity-scroll-view__content-container` (descendant, not
+  child). Verified live: grid now wraps horizontally.
+- Removed `Assets/ClanSystem/README.md`, a stale duplicate from the initial commit with no
+  screenshots and out-of-date copy. The real README — with the setup guide, security model and
+  screenshots — has only ever been the one at the repo root.
+- Recaptured `docs/images/clan-tab.png`, `chat-emoji.png`, `leaderboard-players.png`,
+  `leaderboard-clans.png` against the live backend after the moderation-gate and Vivox fixes.
+  `friends-tab.png` left as-is — the Friends service was reporting unavailable this session
+  (live UGS issue, not code), so a recapture would have shown a broken state instead of a
+  populated one.
+
 ### Added
 - `SOCIAL_ModerationAction.js` — Cloud Code target for the dashboard "Moderation actions" hook.
   Maps the five default actions (Ban from game, Block from voice & chat, Mute All, Text Mute,
