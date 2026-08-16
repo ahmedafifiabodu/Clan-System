@@ -1,0 +1,43 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8a5f887f04efed94eb0372524cbcc32b, type: 3}
+  m_Name: ClanSystemConfig
+  m_EditorClassIdentifier: ClanSystem.CoreData::ClanSystem.CoreData.ClanSystemConfig
+  _clanCommandScript: SOCIAL_ClanCommand
+  _clanQueryScript: SOCIAL_ClanQuery
+  _chatScript: SOCIAL_Chat
+  _leaderboardScript: SOCIAL_Leaderboards
+  _playerLeaderboardId: player_score
+  _clanLeaderboardId: clan_score
+  _clanNameMinLength: 3
+  _clanNameMaxLength: 24
+  _clanTagMinLength: 2
+  _clanTagMaxLength: 5
+  _clanDescriptionMaxLength: 200
+  _defaultMaxMembers: 30
+  _chatMessageMaxLength: 200
+  _chatHistoryLimit: 50
+  _chatPollIntervalSeconds: 3
+  _vivoxTokenScript: SOCIAL_VivoxToken
+  _globalChannelName: global
+  _clanChannelPrefix: clan_
+  _autoJoinGlobalTextOnLogin: 1
+  _joinVoiceMutedByDefault: 1
+  _voiceIndicatorRefreshSeconds: 0.2
+  _emojiDatabase: {fileID: 11400000, guid: b60045fce856dda42b0c6f19350e7f55, type: 2}
+  _notificationPollIntervalSeconds: 15
+  _presenceHeartbeatSeconds: 60
+  _leaderboardPageSize: 25
+  _clanSearchPageSize: 20
+  _requestTimeoutSeconds: 20
+  _requestRetryCount: 2
+  _demoScoreDelta: 120

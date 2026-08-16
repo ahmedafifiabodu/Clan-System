@@ -1,0 +1,9 @@
+{
+  "name": "clan-system-cloud-code",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloud Code JS authoring environment for the Clan System project. Its presence enables in-script parameter extraction by the Cloud Code Deployment package.",
+  "ccaVersion": "2.10.4",
+  "dependencies": {},
+  "devDependencies": {}
+}

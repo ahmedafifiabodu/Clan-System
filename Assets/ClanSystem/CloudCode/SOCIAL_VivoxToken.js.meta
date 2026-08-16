@@ -1,0 +1,27 @@
+fileFormatVersion: 2
+guid: 716189b120b4fcb4fa62703c7d5812d2
+ScriptedImporter:
+  internalIDToNameTable: []
+  externalObjects: {}
+  serializedVersion: 2
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+  script: {fileID: 11500000, guid: fbc33bd6a5704c0881dc7a9ead54089b, type: 3}
+  Parameters:
+  - Name: action
+    ParameterType: 0
+    Required: 0
+  - Name: channelUri
+    ParameterType: 0
+    Required: 0
+  - Name: fromUserUri
+    ParameterType: 0
+    Required: 0
+  - Name: targetUserUri
+    ParameterType: 0
+    Required: 0
+  - Name: expirationSeconds
+    ParameterType: 1
+    Required: 0
+  Source: 1

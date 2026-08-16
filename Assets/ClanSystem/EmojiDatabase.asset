@@ -1,0 +1,115 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f56a1fe8770537c4b9d4ba3339d57dd5, type: 3}
+  m_Name: EmojiDatabase
+  m_EditorClassIdentifier: ClanSystem.CoreData::ClanSystem.CoreData.EmojiDatabase
+  _categories:
+  - _name: Smileys
+    _icon: "\U0001F600"
+    _entries:
+    - _character: "\U0001F600"
+      _shortcode: grinning
+    - _character: "\U0001F602"
+      _shortcode: joy
+    - _character: "\U0001F609"
+      _shortcode: wink
+    - _character: "\U0001F60A"
+      _shortcode: blush
+    - _character: "\U0001F60E"
+      _shortcode: sunglasses
+    - _character: "\U0001F914"
+      _shortcode: thinking
+    - _character: "\U0001F61C"
+      _shortcode: tongue
+    - _character: "\U0001F62D"
+      _shortcode: sob
+    - _character: "\U0001F620"
+      _shortcode: angry
+    - _character: "\U0001F631"
+      _shortcode: scream
+    - _character: "\U0001F634"
+      _shortcode: sleeping
+    - _character: "\U0001F971"
+      _shortcode: yawn
+  - _name: Gestures
+    _icon: "\U0001F44B"
+    _entries:
+    - _character: "\U0001F44B"
+      _shortcode: wave
+    - _character: "\U0001F44D"
+      _shortcode: thumbsup
+    - _character: "\U0001F44E"
+      _shortcode: thumbsdown
+    - _character: "\U0001F44F"
+      _shortcode: clap
+    - _character: "\U0001F64C"
+      _shortcode: raised_hands
+    - _character: "\U0001F64F"
+      _shortcode: pray
+    - _character: "\U0001F4AA"
+      _shortcode: muscle
+    - _character: "\U0001F91D"
+      _shortcode: handshake
+    - _character: "\u270C"
+      _shortcode: victory
+    - _character: "\U0001F918"
+      _shortcode: horns
+  - _name: Game
+    _icon: "\U0001F3AE"
+    _entries:
+    - _character: "\U0001F3AE"
+      _shortcode: gamepad
+    - _character: "\U0001F525"
+      _shortcode: fire
+    - _character: "\U0001F4A5"
+      _shortcode: boom
+    - _character: "\u2694"
+      _shortcode: swords
+    - _character: "\U0001F6E1"
+      _shortcode: shield
+    - _character: "\U0001F3C6"
+      _shortcode: trophy
+    - _character: "\U0001F947"
+      _shortcode: first_place
+    - _character: "\U0001F480"
+      _shortcode: skull
+    - _character: "\U0001F409"
+      _shortcode: dragon
+    - _character: "\U0001F43A"
+      _shortcode: wolf
+    - _character: "\U0001F680"
+      _shortcode: rocket
+    - _character: "\u2B50"
+      _shortcode: star
+  - _name: Status
+    _icon: "\u2705"
+    _entries:
+    - _character: "\u2705"
+      _shortcode: check
+    - _character: "\u274C"
+      _shortcode: cross
+    - _character: "\u26A0"
+      _shortcode: warning
+    - _character: "\U0001F440"
+      _shortcode: eyes
+    - _character: "\U0001F4AC"
+      _shortcode: speech
+    - _character: "\U0001F514"
+      _shortcode: bell
+    - _character: "\u23F0"
+      _shortcode: alarm
+    - _character: "\U0001F4A4"
+      _shortcode: afk
+    - _character: "\u2764"
+      _shortcode: heart
+    - _character: "\U0001F389"
+      _shortcode: party

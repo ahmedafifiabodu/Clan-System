@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="utf-8"?>
+<engine:UXML
+    xmlns:engine="UnityEngine.UIElements"
+    xmlns:editor="UnityEditor.UIElements"
+    xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+    <engine:Style src="project://database/Assets/ClanSystem/UI/SocialWindow.uss" />
+
+    <engine:VisualElement name="root" class="root">
+
+        <!-- Sign-in gate: shown until Unity Authentication reports a signed-in player. -->
+        <engine:VisualElement name="signin-panel" class="signin-panel">
+            <engine:Label text="CLAN SYSTEM" class="signin-title" />
+            <engine:Label text="Unity Gaming Services social demo" class="signin-subtitle" />
+            <engine:VisualElement class="signin-card">
+                <engine:Label text="Profile (use a different profile per test client)" class="field-label" />
+                <engine:TextField name="profile-field" value="default" class="text-field" />
+                <engine:Button name="signin-button" text="Sign in anonymously" class="button primary wide" />
+                <engine:Label name="signin-status" text="" class="status-line" />
+            </engine:VisualElement>
+        </engine:VisualElement>
+
+        <!-- Main social window -->
+        <engine:VisualElement name="main-panel" class="main-panel">
+
+            <engine:VisualElement name="header" class="header">
+                <engine:VisualElement class="header-identity">
+                    <engine:Label name="header-name" text="Player" class="header-name" />
+                    <engine:Label name="header-meta" text="" class="header-meta" />
+                </engine:VisualElement>
+                <engine:VisualElement class="header-actions">
+                    <engine:TextField name="rename-field" class="text-field small" />
+                    <engine:Button name="rename-button" text="Rename" class="button ghost" />
+                    <engine:Button name="score-button" text="Play a match" class="button primary" />
+                    <engine:Button name="refresh-button" text="Refresh" class="button ghost" />
+                </engine:VisualElement>
+            </engine:VisualElement>
+
+            <engine:VisualElement name="tabbar" class="tabbar">
+                <engine:Button name="tab-friends" text="Friends" class="tab" />
+                <engine:Button name="tab-clan" text="Clan" class="tab" />
+                <engine:Button name="tab-chat" text="Chat" class="tab" />
+                <engine:Button name="tab-leaderboards" text="Leaderboards" class="tab" />
+                <engine:Button name="tab-notifications" text="Notifications" class="tab" />
+            </engine:VisualElement>
+
+            <engine:VisualElement name="content" class="content">
+
+                <!-- FRIENDS -->
+                <engine:VisualElement name="page-friends" class="page">
+                    <engine:VisualElement class="row-split">
+                        <engine:VisualElement class="column">
+                            <engine:Label text="FRIENDS" class="section-title" />
+                            <engine:VisualElement class="inline-form">
+                                <engine:TextField name="friend-name-field" class="text-field grow" />
+                                <engine:Button name="friend-add-button" text="Add by name" class="button" />
+                            </engine:VisualElement>
+                            <engine:Label name="friends-hint" text="Add a friend using their name, for example Player#1234." class="hint" />
+                            <engine:ScrollView name="friends-list" class="list" />
+                            <engine:Label name="friends-empty" text="No friends yet." class="empty-state" />
+                        </engine:VisualElement>
+
+                        <engine:VisualElement class="column">
+                            <engine:Label text="CLAN MEMBERS" class="section-title" />
+                            <engine:Label name="friends-clan-label" text="You are not in a clan." class="hint" />
+                            <engine:ScrollView name="clanmates-list" class="list" />
+                        </engine:VisualElement>
+                    </engine:VisualElement>
+                </engine:VisualElement>
+
+                <!-- CLAN -->
+                <engine:VisualElement name="page-clan" class="page">
+
+                    <engine:VisualElement name="clan-none" class="clan-none">
+                        <engine:Label text="You are not in a clan" class="section-title" />
+                        <engine:VisualElement class="card">
+                            <engine:Label text="Create a clan" class="card-title" />
+                            <engine:VisualElement class="inline-form">
+                                <engine:TextField name="create-name-field" class="text-field grow" />
+                                <engine:TextField name="create-tag-field" class="text-field tiny" />
+                            </engine:VisualElement>
+                            <engine:Label text="Name (3-24) and tag (2-5, letters or digits)" class="hint" />
+                            <engine:TextField name="create-description-field" multiline="true" class="text-field area" />
+                            <engine:Toggle name="create-public-toggle" label="Public (anyone can join)" value="true" class="toggle" />
+                            <engine:Button name="create-button" text="Create clan" class="button primary wide" />
+                        </engine:VisualElement>
+
+                        <engine:VisualElement class="card">
+                            <engine:Label text="Find a clan" class="card-title" />
+                            <engine:VisualElement class="inline-form">
+                                <engine:TextField name="search-field" class="text-field grow" />
+                                <engine:Button name="search-button" text="Search" class="button" />
+                            </engine:VisualElement>
+                            <engine:ScrollView name="search-list" class="list" />
+                            <engine:Label name="search-empty" text="Search by clan name or tag." class="empty-state" />
+                        </engine:VisualElement>
+                    </engine:VisualElement>
+
+                    <engine:VisualElement name="clan-detail" class="clan-detail">
+                        <engine:VisualElement class="clan-banner">
+                            <engine:VisualElement name="clan-emblem" class="emblem" />
+                            <engine:VisualElement class="clan-headline">
+                                <engine:Label name="clan-name" text="" class="clan-name" />
+                                <engine:Label name="clan-sub" text="" class="clan-sub" />
+                                <engine:Label name="clan-description" text="" class="clan-description" />
+                            </engine:VisualElement>
+                            <engine:VisualElement class="clan-stats">
+                                <engine:Label name="clan-score" text="" class="stat" />
+                                <engine:Label name="clan-rank" text="" class="stat" />
+                                <engine:Label name="clan-members" text="" class="stat" />
+                            </engine:VisualElement>
+                        </engine:VisualElement>
+
+                        <engine:VisualElement class="motd-row">
+                            <engine:TextField name="motd-field" class="text-field grow" />
+                            <engine:Button name="motd-button" text="Set MOTD" class="button ghost" />
+                        </engine:VisualElement>
+
+                        <engine:VisualElement class="row-split">
+                            <engine:VisualElement class="column">
+                                <engine:Label text="MEMBERS" class="section-title" />
+                                <engine:ScrollView name="members-list" class="list tall" />
+                            </engine:VisualElement>
+                            <engine:VisualElement class="column narrow">
+                                <engine:Label text="ACTIVITY" class="section-title" />
+                                <engine:ScrollView name="activity-list" class="list tall" />
+                            </engine:VisualElement>
+                        </engine:VisualElement>
+
+                        <engine:VisualElement class="clan-actions">
+                            <engine:Button name="leave-button" text="Leave clan" class="button danger" />
+                            <engine:Button name="disband-button" text="Disband clan" class="button danger" />
+                        </engine:VisualElement>
+                    </engine:VisualElement>
+                </engine:VisualElement>
+
+                <!-- CHAT + VOICE -->
+                <engine:VisualElement name="page-chat" class="page">
+
+                    <!-- Voice bar: state, channel switching, mic/speaker, live participants -->
+                    <engine:VisualElement class="voice-bar">
+                        <engine:Label name="voice-status" text="VOICE OFFLINE" class="voice-status" />
+                        <engine:VisualElement class="voice-actions">
+                            <engine:Button name="voice-join-global" text="Global voice" class="button" />
+                            <engine:Button name="voice-join-clan" text="Clan voice" class="button" />
+                            <engine:Button name="voice-leave" text="Leave voice" class="button ghost" />
+                            <engine:Button name="voice-mic" text="Mic on" class="button" />
+                            <engine:Button name="voice-speaker" text="Sound on" class="button" />
+                        </engine:VisualElement>
+                    </engine:VisualElement>
+
+                    <engine:VisualElement class="voice-people">
+                        <engine:Label text="IN VOICE" class="section-title" />
+                        <engine:ScrollView name="voice-participants" class="list short" />
+                        <engine:Label name="voice-participants-empty" text="Join a voice channel to see who is connected." class="empty-state" />
+                    </engine:VisualElement>
+
+                    <engine:VisualElement class="chat-head">
+                        <engine:VisualElement class="subtabs">
+                            <engine:Button name="chat-tab-global" text="GLOBAL" class="subtab" />
+                            <engine:Button name="chat-tab-clan" text="CLAN" class="subtab" />
+                        </engine:VisualElement>
+                        <engine:Label name="chat-connection" text="OFFLINE" class="conn-pill" />
+                    </engine:VisualElement>
+
+                    <engine:ScrollView name="chat-list" class="chat-list" />
+                    <engine:Label name="chat-empty" text="No messages yet. Say hello." class="empty-state" />
+
+                    <engine:VisualElement name="emoji-picker" class="emoji-picker">
+                        <engine:VisualElement name="emoji-categories" class="emoji-categories" />
+                        <engine:ScrollView name="emoji-grid" class="emoji-grid" />
+                    </engine:VisualElement>
+
+                    <engine:VisualElement class="chat-input-row">
+                        <engine:Button name="chat-emoji-toggle" text="Emoji" class="button ghost" />
+                        <engine:TextField name="chat-field" class="text-field grow" />
+                        <engine:Button name="chat-send" text="Send" class="button primary" />
+                    </engine:VisualElement>
+                    <engine:Label name="chat-hint" text="" class="hint" />
+                </engine:VisualElement>
+
+                <!-- LEADERBOARDS -->
+                <engine:VisualElement name="page-leaderboards" class="page">
+                    <engine:VisualElement class="subtabs">
+                        <engine:Button name="lb-tab-players" text="Players" class="subtab" />
+                        <engine:Button name="lb-tab-clans" text="Clans" class="subtab" />
+                    </engine:VisualElement>
+                    <engine:VisualElement name="lb-header" class="lb-header" />
+                    <engine:ScrollView name="lb-list" class="list tall" />
+                    <engine:Label name="lb-empty" text="" class="empty-state" />
+                    <engine:VisualElement class="pager">
+                        <engine:Button name="lb-prev" text="Previous" class="button ghost" />
+                        <engine:Label name="lb-page" text="" class="page-label" />
+                        <engine:Button name="lb-next" text="Next" class="button ghost" />
+                    </engine:VisualElement>
+                    <engine:VisualElement name="lb-self" class="lb-self" />
+                </engine:VisualElement>
+
+                <!-- NOTIFICATIONS -->
+                <engine:VisualElement name="page-notifications" class="page">
+                    <engine:Label text="CLAN INVITATIONS" class="section-title" />
+                    <engine:ScrollView name="invites-list" class="list" />
+                    <engine:Label name="invites-empty" text="No pending invitations." class="empty-state" />
+
+                    <engine:Label text="FRIEND REQUESTS" class="section-title" />
+                    <engine:ScrollView name="requests-list" class="list" />
+                    <engine:Label name="requests-empty" text="No pending friend requests." class="empty-state" />
+
+                    <engine:Label text="JOIN REQUESTS" class="section-title" />
+                    <engine:ScrollView name="joinrequests-list" class="list" />
+                    <engine:Label name="joinrequests-empty" text="No pending join requests." class="empty-state" />
+                </engine:VisualElement>
+
+            </engine:VisualElement>
+
+            <engine:VisualElement name="busy-bar" class="busy-bar">
+                <engine:Label name="busy-label" text="Working..." class="busy-label" />
+            </engine:VisualElement>
+
+            <engine:VisualElement name="toast" class="toast">
+                <engine:Label name="toast-label" text="" class="toast-label" />
+            </engine:VisualElement>
+        </engine:VisualElement>
+
+        <!-- Player profile popup -->
+        <engine:VisualElement name="profile-popup" class="popup-backdrop">
+            <engine:VisualElement class="popup">
+                <engine:Label name="popup-name" text="" class="popup-title" />
+                <engine:Label name="popup-meta" text="" class="popup-meta" />
+                <engine:Label name="popup-clan" text="" class="popup-meta" />
+                <engine:VisualElement name="popup-actions" class="popup-actions" />
+                <engine:Button name="popup-close" text="Close" class="button ghost wide" />
+            </engine:VisualElement>
+        </engine:VisualElement>
+
+    </engine:VisualElement>
+</engine:UXML>

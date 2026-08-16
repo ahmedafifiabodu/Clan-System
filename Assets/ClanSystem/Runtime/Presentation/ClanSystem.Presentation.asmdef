@@ -1,0 +1,17 @@
+{
+    "name": "ClanSystem.Presentation",
+    "rootNamespace": "ClanSystem.Presentation",
+    "references": [
+        "ClanSystem.CoreData",
+        "ClanSystem.Services"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

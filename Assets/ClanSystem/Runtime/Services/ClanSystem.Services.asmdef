@@ -1,0 +1,22 @@
+{
+    "name": "ClanSystem.Services",
+    "rootNamespace": "ClanSystem.Services",
+    "references": [
+        "ClanSystem.CoreData",
+        "Newtonsoft.Json",
+        "Unity.Services.Core",
+        "Unity.Services.Authentication",
+        "Unity.Services.CloudCode",
+        "Unity.Services.Friends",
+        "Unity.Services.Vivox"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

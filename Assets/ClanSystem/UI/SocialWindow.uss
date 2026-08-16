@@ -1,0 +1,803 @@
+.root {
+    flex-grow: 1;
+    background-color: rgb(16, 18, 26);
+    color: rgb(228, 232, 240);
+    font-size: 14px;
+}
+
+/* ---------- Sign-in ---------- */
+
+.signin-panel {
+    flex-grow: 1;
+    align-items: center;
+    justify-content: center;
+}
+
+.signin-title {
+    font-size: 42px;
+    -unity-font-style: bold;
+    color: rgb(120, 190, 255);
+    letter-spacing: 6px;
+}
+
+.signin-subtitle {
+    font-size: 14px;
+    color: rgb(140, 150, 170);
+    margin-bottom: 24px;
+}
+
+.signin-card {
+    width: 420px;
+    padding: 20px;
+    background-color: rgb(24, 28, 40);
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: rgb(44, 52, 72);
+}
+
+/* ---------- Layout ---------- */
+
+.main-panel {
+    flex-grow: 1;
+    display: none;
+}
+
+.header {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 18px;
+    background-color: rgb(22, 26, 38);
+    border-bottom-width: 1px;
+    border-bottom-color: rgb(44, 52, 72);
+}
+
+.header-identity {
+    flex-direction: column;
+}
+
+.header-name {
+    font-size: 18px;
+    -unity-font-style: bold;
+}
+
+.header-meta {
+    font-size: 12px;
+    color: rgb(140, 150, 170);
+}
+
+.header-actions {
+    flex-direction: row;
+    align-items: center;
+}
+
+.tabbar {
+    flex-direction: row;
+    background-color: rgb(20, 23, 34);
+    padding: 6px 12px;
+    border-bottom-width: 1px;
+    border-bottom-color: rgb(44, 52, 72);
+}
+
+.tab {
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+    border-bottom-width: 2px;
+    border-bottom-color: rgba(0, 0, 0, 0);
+    color: rgb(150, 158, 178);
+    padding: 8px 16px;
+    font-size: 14px;
+}
+
+.tab:hover {
+    color: rgb(220, 228, 245);
+}
+
+.tab.selected {
+    color: rgb(120, 190, 255);
+    border-bottom-color: rgb(120, 190, 255);
+    -unity-font-style: bold;
+}
+
+.content {
+    flex-grow: 1;
+}
+
+.page {
+    flex-grow: 1;
+    padding: 16px;
+    display: none;
+}
+
+.page.visible {
+    display: flex;
+}
+
+.row-split {
+    flex-direction: row;
+    flex-grow: 1;
+}
+
+.column {
+    flex-grow: 1;
+    flex-basis: 0;
+    margin-right: 12px;
+}
+
+.column.narrow {
+    flex-grow: 0;
+    flex-basis: 320px;
+    margin-right: 0;
+}
+
+.section-title {
+    font-size: 12px;
+    -unity-font-style: bold;
+    letter-spacing: 2px;
+    color: rgb(130, 140, 160);
+    margin-bottom: 6px;
+    margin-top: 6px;
+}
+
+/* ---------- Controls ---------- */
+
+.button {
+    background-color: rgb(38, 44, 62);
+    border-width: 1px;
+    border-color: rgb(56, 64, 86);
+    border-radius: 6px;
+    color: rgb(224, 230, 245);
+    padding: 6px 14px;
+    margin-left: 6px;
+}
+
+.button:hover {
+    background-color: rgb(48, 56, 78);
+}
+
+.button.primary {
+    background-color: rgb(48, 110, 200);
+    border-color: rgb(70, 140, 235);
+}
+
+.button.primary:hover {
+    background-color: rgb(60, 128, 225);
+}
+
+.button.danger {
+    background-color: rgb(120, 44, 52);
+    border-color: rgb(165, 62, 72);
+}
+
+.button.ghost {
+    background-color: rgba(0, 0, 0, 0);
+}
+
+.button.wide {
+    margin-top: 10px;
+    margin-left: 0;
+    align-self: stretch;
+}
+
+.button.mini {
+    padding: 3px 9px;
+    font-size: 11px;
+}
+
+.button:disabled {
+    opacity: 0.45;
+}
+
+.text-field {
+    min-width: 120px;
+    margin-bottom: 6px;
+}
+
+/* The runtime theme ships light input chrome; restyle the inner input to match the panel. */
+.unity-base-text-field__input {
+    background-color: rgb(28, 33, 47);
+    border-color: rgb(56, 64, 86);
+    border-width: 1px;
+    border-radius: 6px;
+    color: rgb(228, 232, 240);
+    padding: 5px 8px;
+    --unity-cursor-color: rgb(120, 190, 255);
+    --unity-selection-color: rgba(48, 110, 200, 0.55);
+}
+
+.unity-base-text-field__input:focus {
+    border-color: rgb(70, 140, 235);
+}
+
+.unity-base-field__label {
+    color: rgb(150, 158, 178);
+}
+
+.unity-toggle__checkmark {
+    background-color: rgb(28, 33, 47);
+    border-color: rgb(56, 64, 86);
+}
+
+.text-field.grow {
+    flex-grow: 1;
+    margin-bottom: 0;
+}
+
+.text-field.small {
+    width: 150px;
+    margin-bottom: 0;
+}
+
+.text-field.tiny {
+    width: 90px;
+    margin-left: 6px;
+    margin-bottom: 0;
+}
+
+.text-field.area {
+    min-height: 54px;
+}
+
+.toggle {
+    margin-top: 6px;
+}
+
+.field-label {
+    font-size: 12px;
+    color: rgb(150, 158, 178);
+    margin-bottom: 4px;
+}
+
+.hint {
+    font-size: 11px;
+    color: rgb(120, 130, 152);
+    margin-top: 4px;
+    margin-bottom: 6px;
+    white-space: normal;
+}
+
+.status-line {
+    font-size: 12px;
+    color: rgb(235, 140, 140);
+    margin-top: 8px;
+    white-space: normal;
+}
+
+.inline-form {
+    flex-direction: row;
+    align-items: center;
+}
+
+.card {
+    background-color: rgb(24, 28, 40);
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: rgb(44, 52, 72);
+    padding: 14px;
+    margin-bottom: 12px;
+}
+
+.card-title {
+    -unity-font-style: bold;
+    margin-bottom: 8px;
+}
+
+/* ---------- Lists ---------- */
+
+.list {
+    flex-grow: 1;
+    min-height: 120px;
+    max-height: 260px;
+    background-color: rgb(20, 23, 34);
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: rgb(40, 46, 64);
+}
+
+.list.tall {
+    max-height: 380px;
+}
+
+.row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-bottom-width: 1px;
+    border-bottom-color: rgb(32, 37, 52);
+}
+
+.row:hover {
+    background-color: rgb(28, 33, 47);
+}
+
+.row.self {
+    background-color: rgba(48, 110, 200, 0.18);
+}
+
+.row-main {
+    flex-direction: column;
+    flex-grow: 1;
+}
+
+.row-title {
+    font-size: 13px;
+}
+
+.row-sub {
+    font-size: 11px;
+    color: rgb(130, 140, 162);
+}
+
+.row-actions {
+    flex-direction: row;
+    align-items: center;
+}
+
+.presence-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    margin-right: 8px;
+    background-color: rgb(90, 98, 118);
+}
+
+.presence-dot.online {
+    background-color: rgb(90, 205, 130);
+}
+
+.badge {
+    font-size: 10px;
+    -unity-font-style: bold;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background-color: rgb(44, 52, 72);
+    color: rgb(180, 200, 230);
+    margin-left: 6px;
+}
+
+.badge.owner {
+    background-color: rgb(150, 110, 30);
+    color: rgb(255, 240, 210);
+}
+
+.badge.officer {
+    background-color: rgb(60, 90, 140);
+    color: rgb(215, 232, 255);
+}
+
+.empty-state {
+    font-size: 12px;
+    color: rgb(110, 120, 142);
+    padding: 10px 4px;
+    -unity-font-style: italic;
+}
+
+/* ---------- Clan ---------- */
+
+.clan-none {
+    flex-grow: 1;
+    display: none;
+}
+
+.clan-none.visible {
+    display: flex;
+}
+
+.clan-detail {
+    flex-grow: 1;
+    display: none;
+}
+
+.clan-detail.visible {
+    display: flex;
+}
+
+.clan-banner {
+    flex-direction: row;
+    align-items: center;
+    background-color: rgb(24, 28, 40);
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: rgb(44, 52, 72);
+    padding: 14px;
+    margin-bottom: 10px;
+}
+
+.emblem {
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
+    background-color: rgb(48, 110, 200);
+    margin-right: 14px;
+}
+
+.clan-headline {
+    flex-grow: 1;
+}
+
+.clan-name {
+    font-size: 20px;
+    -unity-font-style: bold;
+}
+
+.clan-sub {
+    font-size: 12px;
+    color: rgb(140, 150, 170);
+}
+
+.clan-description {
+    font-size: 12px;
+    color: rgb(170, 180, 200);
+    white-space: normal;
+    margin-top: 4px;
+}
+
+.clan-stats {
+    align-items: flex-end;
+}
+
+.stat {
+    font-size: 12px;
+    color: rgb(180, 195, 220);
+}
+
+.motd-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.clan-actions {
+    flex-direction: row;
+    justify-content: flex-end;
+    margin-top: 10px;
+}
+
+/* ---------- Chat ---------- */
+
+.subtabs {
+    flex-direction: row;
+    margin-bottom: 8px;
+}
+
+.subtab {
+    background-color: rgb(28, 33, 47);
+    border-width: 1px;
+    border-color: rgb(44, 52, 72);
+    border-radius: 6px;
+    color: rgb(160, 170, 190);
+    padding: 5px 14px;
+    margin-right: 6px;
+}
+
+.subtab.selected {
+    background-color: rgb(48, 110, 200);
+    color: rgb(240, 246, 255);
+}
+
+.chat-list {
+    flex-grow: 1;
+    min-height: 260px;
+    background-color: rgb(20, 23, 34);
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: rgb(40, 46, 64);
+    padding: 6px;
+}
+
+.chat-line {
+    flex-direction: column;
+    padding: 4px 6px;
+}
+
+.chat-meta {
+    font-size: 10px;
+    color: rgb(120, 130, 152);
+}
+
+.chat-text {
+    font-size: 13px;
+    white-space: normal;
+}
+
+.chat-line.mine .chat-meta {
+    color: rgb(120, 190, 255);
+}
+
+.chat-input-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 8px;
+}
+
+/* ---------- Voice ---------- */
+
+.voice-bar {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    background-color: rgb(24, 28, 40);
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: rgb(44, 52, 72);
+    padding: 8px 12px;
+    margin-bottom: 8px;
+}
+
+.voice-actions {
+    flex-direction: row;
+    align-items: center;
+}
+
+.voice-status {
+    font-size: 11px;
+    -unity-font-style: bold;
+    letter-spacing: 1px;
+    color: rgb(150, 158, 178);
+}
+
+.voice-status.online {
+    color: rgb(90, 205, 130);
+}
+
+.voice-status.error {
+    color: rgb(235, 120, 120);
+}
+
+.voice-people {
+    margin-bottom: 8px;
+}
+
+.list.short {
+    max-height: 120px;
+    min-height: 60px;
+}
+
+.voice-row {
+    padding: 5px 10px;
+}
+
+.voice-row.speaking {
+    background-color: rgba(90, 205, 130, 0.14);
+}
+
+.speaking-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 5px;
+    margin-right: 8px;
+    background-color: rgb(70, 78, 98);
+}
+
+.speaking-dot.active {
+    background-color: rgb(90, 205, 130);
+}
+
+.volume-slider {
+    width: 90px;
+    margin-left: 8px;
+}
+
+.chat-head {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.conn-pill {
+    font-size: 10px;
+    -unity-font-style: bold;
+    letter-spacing: 1px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background-color: rgb(44, 52, 72);
+    color: rgb(160, 170, 190);
+}
+
+.conn-pill.online {
+    background-color: rgba(90, 205, 130, 0.2);
+    color: rgb(120, 220, 160);
+}
+
+.conn-pill.error {
+    background-color: rgba(200, 80, 90, 0.25);
+    color: rgb(240, 150, 150);
+}
+
+/* ---------- Emoji picker ---------- */
+
+.emoji-picker {
+    display: none;
+    background-color: rgb(24, 28, 40);
+    border-width: 1px;
+    border-color: rgb(56, 64, 86);
+    border-radius: 8px;
+    padding: 8px;
+    margin-top: 8px;
+    max-height: 200px;
+}
+
+.emoji-picker.visible {
+    display: flex;
+}
+
+.emoji-categories {
+    flex-direction: row;
+    margin-bottom: 6px;
+}
+
+.emoji-category {
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+    border-bottom-width: 2px;
+    border-bottom-color: rgba(0, 0, 0, 0);
+    font-size: 18px;
+    padding: 2px 10px;
+}
+
+.emoji-category.selected {
+    border-bottom-color: rgb(120, 190, 255);
+}
+
+.emoji-grid {
+    flex-direction: row;
+    flex-wrap: wrap;
+    max-height: 140px;
+}
+
+.emoji-grid > .unity-scroll-view__content-container {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.emoji-button {
+    font-size: 20px;
+    width: 40px;
+    height: 36px;
+    margin: 2px;
+    padding: 0;
+    background-color: rgba(255, 255, 255, 0.04);
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+}
+
+.emoji-button:hover {
+    background-color: rgba(120, 190, 255, 0.2);
+}
+
+/* ---------- Leaderboards ---------- */
+
+.lb-header {
+    flex-direction: row;
+    padding: 6px 10px;
+    background-color: rgb(24, 28, 40);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+
+.lb-cell {
+    font-size: 11px;
+    color: rgb(140, 150, 172);
+    -unity-font-style: bold;
+    letter-spacing: 1px;
+}
+
+.lb-rank {
+    width: 60px;
+}
+
+.lb-name {
+    flex-grow: 1;
+}
+
+.lb-value {
+    width: 110px;
+    -unity-text-align: middle-right;
+}
+
+.lb-self {
+    margin-top: 8px;
+}
+
+.pager {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    margin-top: 8px;
+}
+
+.page-label {
+    font-size: 12px;
+    color: rgb(150, 160, 180);
+    margin: 0 10px;
+}
+
+/* ---------- Feedback ---------- */
+
+.busy-bar {
+    height: 3px;
+    background-color: rgb(120, 190, 255);
+    display: none;
+}
+
+.busy-bar.visible {
+    display: flex;
+}
+
+.busy-label {
+    display: none;
+}
+
+.toast {
+    position: absolute;
+    bottom: 18px;
+    right: 18px;
+    max-width: 420px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background-color: rgb(32, 40, 58);
+    border-width: 1px;
+    border-color: rgb(70, 140, 235);
+    display: none;
+}
+
+.toast.visible {
+    display: flex;
+}
+
+.toast.error {
+    border-color: rgb(200, 80, 90);
+    background-color: rgb(56, 28, 34);
+}
+
+.toast-label {
+    font-size: 13px;
+    white-space: normal;
+}
+
+/* ---------- Popup ---------- */
+
+.popup-backdrop {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    align-items: center;
+    justify-content: center;
+    display: none;
+}
+
+.popup-backdrop.visible {
+    display: flex;
+}
+
+.popup {
+    width: 380px;
+    padding: 18px;
+    background-color: rgb(24, 28, 40);
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: rgb(70, 140, 235);
+}
+
+.popup-title {
+    font-size: 18px;
+    -unity-font-style: bold;
+}
+
+.popup-meta {
+    font-size: 12px;
+    color: rgb(150, 160, 182);
+    margin-top: 4px;
+    white-space: normal;
+}
+
+.popup-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}

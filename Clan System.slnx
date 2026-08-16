@@ -1,4 +1,7 @@
 ﻿<Solution>
   <Project Path="Assembly-CSharp-Editor.csproj" />
+  <Project Path="ClanSystem.Presentation.csproj" />
+  <Project Path="ClanSystem.Services.csproj" />
+  <Project Path="ClanSystem.CoreData.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
 </Solution>
