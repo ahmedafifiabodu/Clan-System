@@ -109,7 +109,9 @@ Assets/ClanSystem/
     SOCIAL_ClanCommand.js       create/join/leave/invite/kick/promote/transfer/disband/settings
     SOCIAL_ClanQuery.js         snapshot, clan detail, roster, search, activity, join requests
     SOCIAL_Leaderboards.js      score submission (clamped) and both leaderboards
-    SOCIAL_VivoxToken.js        mints Vivox tokens against real clan membership
+    SOCIAL_VivoxToken.js        mints Vivox tokens against real clan membership; also the moderation gate
+    SOCIAL_ModerationAction.js  dashboard "Moderation actions" hook, applies/lifts restrictions
+    SOCIAL_ModerationAutomation.js  dashboard "Automation" hook, escalates on repeat Safe Text incidents
     player_score.lb             leaderboard definition (Desc, KeepBest)
     clan_score.lb               leaderboard definition (Desc, KeepLatest)
   Runtime/
@@ -178,7 +180,17 @@ mic/speaker mute, chat history, score submission, both leaderboards, clan search
 invites and disband. Attach it to an empty GameObject, assign `ClanSystemConfig`, set a profile and
 tick **Run On Start**.
 
-Last run: **29/29 passed.**
+Last run: **29/29 passed** (before the moderation-gate change — needs a rerun).
+
+### Automated Play Mode tests
+
+`Assets/ClanSystem/Tests/PlayMode/SocialBackendTests.cs`, own asmdef, 7 tests against the real
+backend (no mocks): sign-in, clan creation/ownership, duplicate-clan rejection, self-role-change
+rejection, score submission reaching both leaderboards, clan search, disband. Run via Test Runner →
+Play Mode.
+
+Last run: **7/7 passed.** Not re-runnable back to back — Authentication profiles map to stable
+player ids, so a second run inside 60s hits the per-player clan-create cooldown.
 
 ---
 
@@ -188,14 +200,12 @@ Last run: **29/29 passed.**
   switching, speaking indicators with real audio, muting another player, and reconnect behaviour.
   The code paths exist (`SocialState.ClanMembershipChanged` drives channel resync) but are untested
   under real concurrency.
-- **Rapid voice-channel clicks are not serialised.** Several clicks inside one frame each await
-  independently, so the last to *complete* wins. Harmless in practice — frames separate real clicks —
-  but a command queue would make it deterministic.
 - **Clan search scans a single index item.** Fine into the low thousands of clans; beyond that, move
   to a Cloud Save index with a dashboard-configured query.
-- **Disbanded clans leave a zeroed leaderboard entry.** They are filtered out server-side when the
-  clan board is built, but the entries are not deleted.
-- **No profanity filter.** Chat is limited by length, rate and control-character stripping only.
+- **Disband attempts a real leaderboard entry delete** via the Leaderboards Admin API, falling back
+  to zeroing the entry until an Admin-role service account is provisioned in Secret Manager. Zeroed
+  entries are filtered out server-side when the clan board is built, but not removed.
+- **No profanity filter in the old sense.** Vivox Safe Text owns that now, gated through the two
+  moderation Cloud Code scripts above; dashboard wiring for both is not yet confirmed applied.
 - **`runInBackground` must stay enabled.** With it off, every async request freezes whenever the
   Editor loses focus.
-- **No Test Runner fixture.** The smoke test is a component, not an automated CI test.

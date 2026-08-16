@@ -20,6 +20,13 @@ namespace ClanSystem.Services
     public class VivoxCommunicationService : ICommunicationService
     {
         private const int _historyRequestMax = 50;
+        private const int _logoutSettleAttempts = 40;
+        private const int _logoutSettleDelayMilliseconds = 50;
+
+        // VivoxService is a process-wide singleton, so a logout started by one service instance
+        // still blocks a login attempted by the next one. Tracking it statically is what lets a
+        // fresh instance wait for the previous instance's teardown instead of racing it.
+        private static Task _pendingLogout;
 
         private readonly ClanSystemConfig _config;
         private readonly CloudCodeVivoxTokenProvider _tokenProvider;
@@ -30,6 +37,10 @@ namespace ClanSystem.Services
         private readonly HashSet<string> _voiceChannels = new HashSet<string>();
         private readonly HashSet<string> _textChannels = new HashSet<string>();
         private readonly Dictionary<string, Task<SocialResult>> _joinsInFlight = new Dictionary<string, Task<SocialResult>>();
+
+        // Voice operations run one at a time. Without this, several channel switches issued in the
+        // same frame each await independently and whichever finishes last decides the final state.
+        private readonly SemaphoreSlim _voiceGate = new SemaphoreSlim(1, 1);
 
         private string _clanChannelName;
         private bool _isDisposed;
@@ -74,6 +85,11 @@ namespace ClanSystem.Services
             try
             {
                 await VivoxService.Instance.InitializeAsync();
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Vivox refuses a login while any session is still open, and a logout left running
+                // by a disposed instance is exactly that. Settle it before asking to log in.
+                await EnsureLoggedOutAsync(cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 // Must be registered before login so even the login token is server-issued.
@@ -155,6 +171,59 @@ namespace ClanSystem.Services
         }
 
         /// <summary>
+        /// Waits until Vivox genuinely holds no session, so the caller can log in. Covers both a
+        /// logout still in flight from an earlier instance and a session nobody is tearing down -
+        /// a reloaded scene or a failed dispose - which would otherwise fail login outright.
+        /// </summary>
+        private async Task EnsureLoggedOutAsync(CancellationToken cancellationToken)
+        {
+            Task pending = _pendingLogout;
+            if (pending != null && !pending.IsCompleted)
+            {
+                try
+                {
+                    await pending;
+                }
+                catch (Exception exception)
+                {
+                    // The logout logs its own failure; here it only matters that it is finished.
+                    Debug.LogWarning($"[ClanSystem] Previous Vivox logout ended with: {exception.Message}");
+                }
+            }
+
+            _pendingLogout = null;
+
+            if (VivoxService.Instance == null || !VivoxService.Instance.IsLoggedIn)
+            {
+                return;
+            }
+
+            try
+            {
+                await VivoxService.Instance.LeaveAllChannelsAsync();
+                await VivoxService.Instance.LogoutAsync();
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning($"[ClanSystem] Could not close the previous Vivox session: {exception.Message}");
+            }
+
+            // LogoutAsync returns before the SDK has finished dropping the session, so poll rather
+            // than trust the await alone.
+            for (int i = 0; i < _logoutSettleAttempts; i++)
+            {
+                if (VivoxService.Instance == null || !VivoxService.Instance.IsLoggedIn)
+                {
+                    return;
+                }
+
+                await Task.Delay(_logoutSettleDelayMilliseconds, cancellationToken);
+            }
+
+            Debug.LogWarning("[ClanSystem] Vivox is still reporting a live session; logging in anyway.");
+        }
+
+        /// <summary>
         /// Keeps channel membership honest: when the player's clan changes - joined, left, kicked or
         /// switched - the previous clan channel is left and its cached history dropped.
         /// </summary>
@@ -201,19 +270,20 @@ namespace ClanSystem.Services
                 return SocialResult.Failure(SocialErrorCode.NotInClan, "You are not in a clan.");
             }
 
-            // Only join when not already present; switching which channel carries the microphone
-            // must not depend on a join succeeding.
-            if (!_textChannels.Contains(name))
-            {
-                SocialResult joined = await JoinChannelAsync(channel, ChatCapability.TextAndAudio, cancellationToken);
-                if (!joined.IsSuccess)
-                {
-                    return joined;
-                }
-            }
-
+            await _voiceGate.WaitAsync(cancellationToken);
             try
             {
+                // Only join when not already present; switching which channel carries the microphone
+                // must not depend on a join succeeding.
+                if (!_textChannels.Contains(name))
+                {
+                    SocialResult joined = await JoinChannelAsync(channel, ChatCapability.TextAndAudio, cancellationToken);
+                    if (!joined.IsSuccess)
+                    {
+                        return joined;
+                    }
+                }
+
                 await VivoxService.Instance.SetChannelTransmissionModeAsync(TransmissionMode.Single, name);
                 ActiveVoiceChannel = channel;
 
@@ -222,10 +292,18 @@ namespace ClanSystem.Services
                 RaiseStateChanged();
                 return SocialResult.Success();
             }
+            catch (OperationCanceledException)
+            {
+                return SocialResult.Failure(SocialErrorCode.Cancelled, SocialErrorMapper.Describe(SocialErrorCode.Cancelled));
+            }
             catch (Exception exception)
             {
                 Debug.LogWarning($"[ClanSystem] Could not transmit into '{name}': {exception.Message}");
                 return SocialResult.Failure(SocialErrorCode.ServiceUnavailable, "Could not open the microphone for that channel.");
+            }
+            finally
+            {
+                _voiceGate.Release();
             }
         }
 
@@ -240,6 +318,7 @@ namespace ClanSystem.Services
                 return SocialResult.Success();
             }
 
+            await _voiceGate.WaitAsync(cancellationToken);
             try
             {
                 await VivoxService.Instance.SetChannelTransmissionModeAsync(TransmissionMode.None);
@@ -247,6 +326,10 @@ namespace ClanSystem.Services
             catch (Exception exception)
             {
                 Debug.LogWarning($"[ClanSystem] Could not stop transmitting: {exception.Message}");
+            }
+            finally
+            {
+                _voiceGate.Release();
             }
 
             if (ActiveVoiceChannel == channel)
@@ -459,7 +542,9 @@ namespace ClanSystem.Services
 
             _isDisposed = true;
             UnhookEvents();
-            _ = LogoutAsync();
+
+            // Dispose cannot await, so the logout is published instead: the next login waits on it.
+            _pendingLogout = LogoutAsync();
         }
 
         /// <summary>
@@ -555,8 +640,34 @@ namespace ClanSystem.Services
             return channels != null && channels.ContainsKey(channelName);
         }
 
+        /// <summary>
+        /// Leaves a channel only if it was really joined. A clan set while signed out, or a join the
+        /// server refused, still leaves a channel name behind, and Vivox treats leaving a channel it
+        /// never put us in as an error rather than a no-op.
+        /// </summary>
         private async Task LeaveChannelAsync(string channelName)
         {
+            // A join still running would re-add the channel immediately after we left it, so let it
+            // land first and then decide from the settled state.
+            Task<SocialResult> pendingJoin;
+            if (_joinsInFlight.TryGetValue(channelName, out pendingJoin))
+            {
+                try
+                {
+                    await pendingJoin;
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogWarning($"[ClanSystem] Join '{channelName}' failed while leaving: {exception.Message}");
+                }
+            }
+
+            bool isJoined = _textChannels.Contains(channelName) || _voiceChannels.Contains(channelName);
+            if (!isJoined && !IsChannelLiveInSdk(channelName))
+            {
+                return;
+            }
+
             try
             {
                 if (VivoxService.Instance != null && VivoxService.Instance.IsLoggedIn)

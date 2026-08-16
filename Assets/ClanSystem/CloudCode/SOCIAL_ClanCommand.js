@@ -1,6 +1,7 @@
 const { DataApi } = require("@unity-services/cloud-save-1.4");
 const { LeaderboardsApi } = require("@unity-services/leaderboards-1.1");
 const { PlayerNamesApi } = require("@unity-services/player-names-1.0");
+const axios = require("axios-1.6");
 
 // Server-authoritative clan mutations. The client never writes clan state directly:
 // every field below lives in Cloud Save *private* custom data, which player tokens cannot reach.
@@ -660,17 +661,41 @@ module.exports = async ({ params, context, logger }) => {
       }
     }
 
+    // Remove the clan's leaderboard entry outright. The Leaderboards client and Cloud Code SDKs
+    // cannot delete scores, so this goes through the Admin API, which can.
+    let entryRemoved = false;
     try {
-      const leaderboards = new LeaderboardsApi(context);
-      await leaderboards.addLeaderboardPlayerScore(context.projectId, CONFIG.clanLeaderboardId, profile.clanId, {
-        score: 0,
-        metadata: { name: profile.name, tag: profile.tag, memberCount: 0, level: profile.level, disbanded: true },
+      const url = `https://services.api.unity.com/leaderboards/v1/projects/${context.projectId}`
+        + `/environments/${context.environmentId}/leaderboards/${CONFIG.clanLeaderboardId}`
+        + `/scores/players/${profile.clanId}`;
+
+      await axios.delete(url, {
+        headers: { Authorization: `Bearer ${context.serviceToken}` },
       });
+      entryRemoved = true;
     } catch (err) {
-      // Leaderboard cleanup is best-effort.
+      const status = err && err.response && err.response.status;
+      if (status === 404) {
+        // Nothing to remove - the clan never scored.
+        entryRemoved = true;
+      } else {
+        logger.warning("Could not delete clan leaderboard entry", {
+          clanId: profile.clanId,
+          status: status,
+        });
+
+        // Fall back to zeroing the entry so it sorts last; the clan board also filters out
+        // entries with no matching clan in the index.
+        try {
+          const leaderboards = new LeaderboardsApi(context);
+          await leaderboards.addLeaderboardPlayerScore(context.projectId, CONFIG.clanLeaderboardId, profile.clanId, { score: 0 });
+        } catch (fallbackError) {
+          // Best effort only.
+        }
+      }
     }
 
-    return ok({ disbanded: true });
+    return ok({ disbanded: true, leaderboardEntryRemoved: entryRemoved });
   }
 };
 

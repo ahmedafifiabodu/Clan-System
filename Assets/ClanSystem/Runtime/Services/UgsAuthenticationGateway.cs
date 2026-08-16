@@ -31,8 +31,18 @@ namespace ClanSystem.Services
             {
                 if (UnityServices.State == ServicesInitializationState.Initialized)
                 {
-                    if (!string.IsNullOrEmpty(profileName) && AuthenticationService.Instance != null && !AuthenticationService.Instance.IsSignedIn)
+                    if (!string.IsNullOrEmpty(profileName) && AuthenticationService.Instance != null
+                        && !string.Equals(AuthenticationService.Instance.Profile, profileName, StringComparison.Ordinal))
                     {
+                        // Asking for a different profile means asking for a different player, so an
+                        // existing session is ended rather than silently kept: SwitchProfile throws
+                        // while signed in, and skipping it would hand back the previous player.
+                        // Credentials stay cached, so a profile always maps to the same player id.
+                        if (AuthenticationService.Instance.IsSignedIn)
+                        {
+                            AuthenticationService.Instance.SignOut();
+                        }
+
                         AuthenticationService.Instance.SwitchProfile(profileName);
                     }
 

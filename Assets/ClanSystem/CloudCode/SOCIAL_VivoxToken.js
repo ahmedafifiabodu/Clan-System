@@ -70,6 +70,32 @@ module.exports = async ({ params, context, logger, secretManager }) => {
     return fail("PERMISSION_DENIED", "Token requested for a different player.");
   }
 
+  // Moderation gate. Records are written by SOCIAL_ModerationAction.js and
+  // SOCIAL_ModerationAutomation.js. Enforcing here is what gives them teeth: Vivox admits no client
+  // without a token, so a muted or banned player cannot rejoin a channel by any client-side means.
+  const moderationApi = new DataApi(context);
+  const moderation = await readPrivate(moderationApi, context.projectId, `player-${callerId}`, "moderation");
+  if (moderation) {
+    const now = Date.now();
+
+    // Convention shared with the moderation scripts:
+    //   missing or 0 -> no restriction,  -1 -> permanent,  > 0 -> expiry timestamp.
+    const isBlocked = (until) => until === -1 || (typeof until === "number" && until > now);
+
+    const voiceBlocked = isBlocked(moderation.voiceBlockedUntil);
+    const banned = isBlocked(moderation.gameBannedUntil);
+
+    if (banned) {
+      logger.info("Token refused: player is banned", { playerId: callerId });
+      return fail("PERMISSION_DENIED", "Your account is currently banned.");
+    }
+
+    if (voiceBlocked) {
+      logger.info("Token refused: player is muted", { playerId: callerId });
+      return fail("PERMISSION_DENIED", "You are currently muted by moderation.");
+    }
+  }
+
   let channelName = null;
   if (action !== "login") {
     channelName = channelNameFromUri(channelUri);

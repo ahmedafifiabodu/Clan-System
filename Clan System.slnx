@@ -3,5 +3,6 @@
   <Project Path="ClanSystem.Presentation.csproj" />
   <Project Path="ClanSystem.Services.csproj" />
   <Project Path="ClanSystem.CoreData.csproj" />
+  <Project Path="ClanSystem.Tests.PlayMode.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
 </Solution>

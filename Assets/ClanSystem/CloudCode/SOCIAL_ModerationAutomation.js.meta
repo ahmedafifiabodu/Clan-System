@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 26468d697c6afd24e8a7ec4317b95b47
+ScriptedImporter:
+  internalIDToNameTable: []
+  externalObjects: {}
+  serializedVersion: 2
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+  script: {fileID: 11500000, guid: fbc33bd6a5704c0881dc7a9ead54089b, type: 3}
+  Parameters:
+  - Name: event
+    ParameterType: 3
+    Required: 0
+  Source: 1
