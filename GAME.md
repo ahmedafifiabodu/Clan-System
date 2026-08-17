@@ -42,14 +42,27 @@ UGS project: `60d3ba05-1508-4323-b795-aca4b31e5bfe`, environment `f31f047c-f136-
 3. **Vivox Safe Text → Moderation actions**: point at `SOCIAL_ModerationAction.js` — same, script
    deployed, dashboard wiring not yet confirmed done.
 4. **Leaderboards write access** → server-only (hardening, not required to run).
-5. **Leaderboards Admin service account** with the *Leaderboards Admin (project level)* role, key in
-   Secret Manager — needed so disband can actually delete the clan's leaderboard entry via the Admin
-   API (`DELETE .../leaderboards/{id}/scores/players/{playerId}`). Not yet provisioned; disband
-   currently falls back to zeroing the entry, which the client filters out but does not remove.
+5. ~~**Leaderboards Admin service account.**~~ **Done and verified live.** Service account holds
+   *Leaderboards Admin* (project role); `UGS_SA_KEY_ID` / `UGS_SA_SECRET_KEY` are in Secret Manager.
+   A disband with a real score returned `leaderboardRemovalMethod: "serviceAccount"` and the entry
+   was genuinely removed from the clan board. Note the key pair is sent as **Basic** auth directly;
+   exchanging it for a Bearer token first returns 401. Disband calls
+   `DELETE .../leaderboards/{id}/scores/players/{playerId}`; if the credentials are ever removed it
+   degrades to zeroing the entry, and `leaderboardRemovalMethod` in the response says which ran.
 
 ## Known bugs
 
-None open. The three found by the Play Mode fixture (`SocialBackendTests`) are fixed:
+None open. Two more fixed since:
+
+0a. **Chat page overlap** — `GLOBAL`/`CLAN` tabs drew over the voice participants label. Cause was
+   default `flex-shrink: 1` on every chat-column row plus UI Toolkit not clipping overflow, so a
+   squeezed row painted over its neighbour. Fixed chrome is now `flex-shrink: 0` and `.chat-list`
+   is the only row that yields.
+0b. **Rename not reflected in chat** — Vivox bakes the display name into the login session, so
+   `LoginOptions.DisplayName` was the real source of truth. Rename now rebuilds the session under
+   the new name and restores channels, voice and mute state.
+
+The three found by the Play Mode fixture (`SocialBackendTests`) are fixed:
 
 1. **Vivox re-login race** — `Dispose()` fired `LogoutAsync()` without awaiting it, so a second
    sign-in could start mid-logout: `LoginSession: Invalid State - must be logged out to perform
@@ -71,7 +84,13 @@ None open. The three found by the Play Mode fixture (`SocialBackendTests`) are f
 ## Known limitations (by design, not bugs)
 
 - Voice-channel switches are now serialised (`SemaphoreSlim` gate) — no longer a limitation, fixed.
-- Clan search scans a single Cloud Save index item — fine to the low thousands of clans.
+- Clan directory is sharded across 16 Cloud Save items; search fans out concurrently. Cloud Save
+  query indexes cover only player data, so they are not usable for clan records held in private
+  custom data.
+- Stale data from before sharding: the old `index` item is abandoned, not read. Clans listed only
+  there are unsearchable, but their `clan-{id}` records and the owning players' `social.clanId`
+  remain in Cloud Save. Clearing them needs a new environment or a Dashboard wipe — Cloud Save
+  private custom data has no list-all API, so it cannot be scripted.
 - No profanity filter in the old sense — Vivox Safe Text now owns that; see moderation scripts above.
 - `Application.runInBackground` must stay `true` — with it off, async requests freeze when the Editor
   loses focus. Already set in ProjectSettings.

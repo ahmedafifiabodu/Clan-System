@@ -34,6 +34,13 @@ namespace ClanSystem.Services
         Task LogoutAsync();
 
         /// <summary>
+        /// Applies a new display name to the live session, so messages sent from now on carry it.
+        /// Messages already sent keep the name they were sent under - the transport stamps the name
+        /// into each message, and history is server-held.
+        /// </summary>
+        Task<SocialResult> UpdateDisplayNameAsync(string displayName, CancellationToken cancellationToken);
+
+        /// <summary>
         /// Brings joined channels in line with the player's real clan: joins the new clan channel,
         /// leaves the previous one. Called whenever the server snapshot changes.
         /// </summary>

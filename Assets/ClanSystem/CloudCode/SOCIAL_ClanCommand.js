@@ -31,7 +31,38 @@ const fail = (code, message) => ({ ok: false, code: code, message: message, data
 
 const clanId_ = (id) => `clan-${id}`;
 const playerId_ = (id) => `player-${id}`;
-const INDEX_ID = "index";
+
+// The directory is sharded: a clan hashes to one of SHARD_COUNT buckets, so writes spread out and
+// no single item grows without bound. Cloud Save query indexes are not an option - they only cover
+// player data, and clan records live in *private custom* data precisely so player tokens cannot
+// reach them.
+const SHARD_COUNT = 16;
+
+// FNV-1a plus a MurmurHash3 finalizer. Stability matters more than speed here: the shard a clan
+// hashes to must never change, or its directory entry becomes unreachable.
+//
+// Math.imul is required, not cosmetic - `hash * 0x01000193` is a float64 multiply that silently
+// loses precision past 2^53 and wrecks the hash (measured 15x bucket skew on realistic tags).
+// The finalizer then avalanches the high bits down, because `% SHARD_COUNT` keeps only the low
+// four and FNV-1a's low bits are its weakest. Together they hold bucket spread under 1.2x.
+function shardOf(value) {
+  let hash = 0x811c9dc5;
+  const text = String(value);
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b) >>> 0;
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 0xc2b2ae35) >>> 0;
+  hash ^= hash >>> 16;
+  return (hash >>> 0) % SHARD_COUNT;
+}
+
+const clanShardId_ = (clanId) => `index-c${shardOf(clanId)}`;
+const tagShardId_ = (tag) => `index-t${shardOf(tag)}`;
 
 async function readPrivate(api, projectId, customId, key) {
   const res = await api.getPrivateCustomItems(projectId, customId, [key]);
@@ -163,7 +194,7 @@ async function syncClanLeaderboard(context, profile) {
 }
 
 async function updateIndex(api, projectId, clanId, summary) {
-  await mutate(api, projectId, INDEX_ID, "clans", (current) => {
+  await mutate(api, projectId, clanShardId_(clanId), "clans", (current) => {
     const map = (current && current.map) || {};
     if (summary === null) delete map[clanId];
     else map[clanId] = summary;
@@ -175,7 +206,31 @@ async function setPlayerSocial(api, projectId, playerId, social) {
   await mutate(api, projectId, playerId_(playerId), "social", () => social);
 }
 
-module.exports = async ({ params, context, logger }) => {
+/// Builds the service account's `Basic` authorization header, if credentials are provisioned.
+///
+/// Deleting a leaderboard score needs the *Leaderboards Admin* role. `context.serviceToken` is
+/// Cloud Code's own service-to-service identity and does not carry it, so the delete falls back
+/// to this. UGS admin APIs authenticate service accounts with the key pair sent directly as
+/// Basic auth - exchanging the pair for a Bearer token first is rejected with 401, because that
+/// token is not an admin credential. Returns null when the secrets are absent, which is the
+/// normal state until they are configured; the caller then degrades to zeroing the entry.
+async function adminAuthHeader(secretManager) {
+  let keyId = null;
+  let secretKey = null;
+  try {
+    keyId = (await secretManager.getSecret("UGS_SA_KEY_ID")).value;
+    secretKey = (await secretManager.getSecret("UGS_SA_SECRET_KEY")).value;
+  } catch (err) {
+    // Absent secrets are expected, not an error worth logging on every disband.
+    return null;
+  }
+
+  if (!keyId || !secretKey) return null;
+
+  return `Basic ${Buffer.from(`${keyId}:${secretKey}`).toString("base64")}`;
+}
+
+module.exports = async ({ params, context, logger, secretManager }) => {
   const api = new DataApi(context);
   const projectId = context.projectId;
   const callerId = context.playerId;
@@ -226,9 +281,10 @@ module.exports = async ({ params, context, logger }) => {
       if (!name) return fail("INVALID_NAME", `Clan name must be ${CONFIG.nameMin}-${CONFIG.nameMax} characters.`);
       if (!tag) return fail("INVALID_TAG", `Clan tag must be ${CONFIG.tagMin}-${CONFIG.tagMax} letters or digits.`);
 
-      const tagsItem = await readPrivate(api, projectId, INDEX_ID, "tags");
-      const tags = (tagsItem.value && tagsItem.value.map) || {};
-      if (tags[tag]) return fail("TAG_TAKEN", `Tag [${tag}] is already in use.`);
+      // Cheap pre-check for a clearer error; the atomic reservation below is the real guard.
+      const shardTagsItem = await readPrivate(api, projectId, tagShardId_(tag), "tags");
+      const shardTags = (shardTagsItem.value && shardTagsItem.value.map) || {};
+      if (shardTags[tag]) return fail("TAG_TAKEN", `Tag [${tag}] is already in use.`);
 
       const clanId = newId(callerId, now);
       const profile = {
@@ -249,7 +305,9 @@ module.exports = async ({ params, context, logger }) => {
         level: 1,
       };
 
-      const reserved = await mutate(api, projectId, INDEX_ID, "tags", (current) => {
+      // Atomic reservation happens on the tag's own shard. Two clans racing for the same tag hash
+      // to the same shard, so the write lock there still serialises them.
+      const reserved = await mutate(api, projectId, tagShardId_(tag), "tags", (current) => {
         const map = (current && current.map) || {};
         if (map[tag]) return { __abort: true };
         map[tag] = clanId;
@@ -646,7 +704,8 @@ module.exports = async ({ params, context, logger }) => {
       await setPlayerSocial(api, projectId, memberId, memberSocial);
     }
 
-    await mutate(api, projectId, INDEX_ID, "tags", (current) => {
+    // Free the tag so it can be reused.
+    await mutate(api, projectId, tagShardId_(profile.tag), "tags", (current) => {
       const map = (current && current.map) || {};
       delete map[profile.tag];
       return { map: map };
@@ -661,41 +720,78 @@ module.exports = async ({ params, context, logger }) => {
       }
     }
 
-    // Remove the clan's leaderboard entry outright. The Leaderboards client and Cloud Code SDKs
-    // cannot delete scores, so this goes through the Admin API, which can.
+    // Remove the clan's leaderboard entry outright. Neither the Leaderboards client SDK nor the
+    // Cloud Code SDK can delete scores, so this goes through the Admin API, which can.
+    //
+    // Two authorised server-side identities are tried, in cost order. Both run here in Cloud Code -
+    // the client is never involved, and no admin credential is ever exposed to it:
+    //   1. context.serviceToken  - free, but only works if the platform grants Cloud Code the
+    //                              Leaderboards Admin role.
+    //   2. a service account     - needs UGS_SA_KEY_ID / UGS_SA_SECRET_KEY in Secret Manager,
+    //                              on a service account holding *Leaderboards Admin*.
+    // If neither is authorised the entry is zeroed instead, which the clan board already filters
+    // out. That is a degraded state, not a correct one: `leaderboardEntryRemoved` reports which
+    // happened so a caller can tell a real delete from the fallback.
+    const deleteUrl = `https://services.api.unity.com/leaderboards/v1/projects/${context.projectId}`
+      + `/environments/${context.environmentId}/leaderboards/${CONFIG.clanLeaderboardId}`
+      + `/scores/players/${profile.clanId}`;
+
+    // Takes a complete Authorization header value, because the two identities use different
+    // schemes: Cloud Code's own token is Bearer, the service account key pair is Basic.
+    const tryDelete = async (authHeader) => {
+      if (!authHeader) return { removed: false, status: null };
+      try {
+        await axios.delete(deleteUrl, { headers: { Authorization: authHeader } });
+        return { removed: true, status: 200 };
+      } catch (err) {
+        const status = err && err.response && err.response.status;
+        // Already gone - the clan never scored. Treated as removed, because it is.
+        if (status === 404) return { removed: true, status: status };
+        return { removed: false, status: status };
+      }
+    };
+
     let entryRemoved = false;
-    try {
-      const url = `https://services.api.unity.com/leaderboards/v1/projects/${context.projectId}`
-        + `/environments/${context.environmentId}/leaderboards/${CONFIG.clanLeaderboardId}`
-        + `/scores/players/${profile.clanId}`;
+    let removalMethod = "none";
 
-      await axios.delete(url, {
-        headers: { Authorization: `Bearer ${context.serviceToken}` },
-      });
+    let attempt = await tryDelete(context.serviceToken ? `Bearer ${context.serviceToken}` : null);
+    if (attempt.removed) {
       entryRemoved = true;
-    } catch (err) {
-      const status = err && err.response && err.response.status;
-      if (status === 404) {
-        // Nothing to remove - the clan never scored.
+      removalMethod = "serviceToken";
+    } else if (attempt.status === 401 || attempt.status === 403 || attempt.status === null) {
+      // Cloud Code's own identity lacks the role. Escalate to the service account if provisioned.
+      const escalated = await tryDelete(await adminAuthHeader(secretManager));
+      if (escalated.removed) {
         entryRemoved = true;
+        removalMethod = "serviceAccount";
       } else {
-        logger.warning("Could not delete clan leaderboard entry", {
+        logger.warning("Could not delete clan leaderboard entry; zeroing instead", {
           clanId: profile.clanId,
-          status: status,
+          serviceTokenStatus: attempt.status,
+          serviceAccountStatus: escalated.status,
+          hint: "Grant Leaderboards Admin to a service account and add UGS_SA_KEY_ID / UGS_SA_SECRET_KEY in Secret Manager.",
         });
+      }
+    } else {
+      logger.warning("Could not delete clan leaderboard entry; zeroing instead", {
+        clanId: profile.clanId,
+        status: attempt.status,
+      });
+    }
 
-        // Fall back to zeroing the entry so it sorts last; the clan board also filters out
-        // entries with no matching clan in the index.
-        try {
-          const leaderboards = new LeaderboardsApi(context);
-          await leaderboards.addLeaderboardPlayerScore(context.projectId, CONFIG.clanLeaderboardId, profile.clanId, { score: 0 });
-        } catch (fallbackError) {
-          // Best effort only.
-        }
+    if (!entryRemoved) {
+      // Zero the entry so it sorts last; the clan board also drops entries with no clan in the
+      // directory, so a disbanded clan stays invisible either way.
+      try {
+        const leaderboards = new LeaderboardsApi(context);
+        await leaderboards.addLeaderboardPlayerScore(context.projectId, CONFIG.clanLeaderboardId, profile.clanId, { score: 0 });
+        removalMethod = "zeroed";
+      } catch (fallbackError) {
+        // Best effort only.
       }
     }
 
-    return ok({ disbanded: true, leaderboardEntryRemoved: entryRemoved });
+    return ok({ disbanded: true, leaderboardEntryRemoved: entryRemoved, leaderboardRemovalMethod: removalMethod });
   }
 };
 

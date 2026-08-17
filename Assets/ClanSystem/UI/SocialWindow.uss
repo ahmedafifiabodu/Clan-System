@@ -469,6 +469,9 @@
     color: rgb(160, 170, 190);
     padding: 5px 14px;
     margin-right: 6px;
+    /* Keep each tab at its label width; shrinking makes the labels bleed past their own borders
+       and into the neighbouring tab. */
+    flex-shrink: 0;
 }
 
 .subtab.selected {
@@ -478,7 +481,10 @@
 
 .chat-list {
     flex-grow: 1;
-    min-height: 260px;
+    /* The one row that yields when the page is short. A large minimum here would instead force the
+       fixed chrome above and below off the page. */
+    flex-shrink: 1;
+    min-height: 120px;
     background-color: rgb(20, 23, 34);
     border-radius: 8px;
     border-width: 1px;
@@ -509,6 +515,7 @@
     flex-direction: row;
     align-items: center;
     margin-top: 8px;
+    flex-shrink: 0;
 }
 
 /* ---------- Voice ---------- */
@@ -523,6 +530,7 @@
     border-color: rgb(44, 52, 72);
     padding: 8px 12px;
     margin-bottom: 8px;
+    flex-shrink: 0;
 }
 
 .voice-actions {
@@ -545,8 +553,12 @@
     color: rgb(235, 120, 120);
 }
 
+/* Fixed-height chrome rows must never be shrunk below their content. UI Toolkit does not clip
+   overflow, so a squeezed row keeps painting its children - they land on top of whatever follows
+   instead of being cut off or scrolled. Only .chat-list absorbs a tight page height. */
 .voice-people {
     margin-bottom: 8px;
+    flex-shrink: 0;
 }
 
 .list.short {
@@ -583,6 +595,7 @@
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
+    flex-shrink: 0;
 }
 
 .conn-pill {

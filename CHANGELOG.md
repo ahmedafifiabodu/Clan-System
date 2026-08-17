@@ -5,7 +5,62 @@ calendar releases.
 
 ## [Unreleased]
 
+### Changed
+- **Clan directory sharded across 16 Cloud Save items.** It was a single `index`/`clans` item
+  holding every clan, which caps out on item size and made every create/disband contend on one
+  write lock. A clan now hashes to `index-c{0..15}` and tags to `index-t{0..15}`; search and the
+  clan leaderboard fan out over all shards concurrently, so the read still costs one round trip.
+  Sharding is the only directory: no compatibility reads, no fallback, no migration layer. The
+  pre-shard `index` item is simply abandoned — clans listed only there are no longer searchable and
+  their tags are free for reuse. Their `clan-{id}` records and the owning players' `social.clanId`
+  still exist in Cloud Save and must be cleared separately (new environment, or a Dashboard wipe);
+  Cloud Save private custom data has no list-all API, so no script can enumerate them.
+  Investigated and rejected the previously documented plan of "a Cloud Save index with a
+  dashboard-configured query": Cloud Save query indexes only cover *player* data, and clan records
+  live in *private custom* data precisely so player tokens cannot reach them. Using them would
+  have meant giving up the security model.
+- Disband leaderboard deletion now tries two authorised server-side identities before degrading:
+  `context.serviceToken` (Bearer), then the service account key pair sent as **Basic** auth
+  (`UGS_SA_KEY_ID` / `UGS_SA_SECRET_KEY` from Secret Manager). Only if both are unauthorised does it
+  fall back to zeroing. The response gained `leaderboardRemovalMethod` (`serviceToken` /
+  `serviceAccount` / `zeroed` / `none`) so the fallback is no longer indistinguishable from a real
+  delete.
+  Verified live: `serviceTokenStatus 401` → `serviceAccountStatus 200`, `leaderboardRemovalMethod:
+  "serviceAccount"`, entry genuinely gone from the board.
+  The first implementation exchanged the key pair for a Bearer token at
+  `/auth/v1/token-exchange` first. That is wrong and returned **401**: the exchanged token is a
+  project/player credential, not an admin one. UGS admin APIs authenticate a service account with
+  the key pair sent directly as Basic — the same `Authorization: Basic …` header the Dashboard
+  shows when a key is created.
+
 ### Fixed
+- **Chat page elements overlapped each other.** The `GLOBAL` / `CLAN` tabs painted on top of the
+  voice participants label, and the tabs bled into one another. Nothing was mispositioned: every
+  row in the chat column had the default `flex-shrink: 1`, so `.voice-people` was squeezed to 90px
+  while its children needed ~134px. UI Toolkit does not clip overflow, so the overflowing children
+  kept drawing straight over the row below. Measured before the fix - `voice-people` ended at
+  `y=248.3` while its label ran to `y=290.8` and `.chat-head` started at `y=256.7`.
+  The fixed chrome rows (`.voice-bar`, `.voice-people`, `.chat-head`, `.chat-input-row`) and the
+  `.subtab` buttons are now `flex-shrink: 0`, and `.chat-list` is the single row that yields, its
+  minimum lowered from 260px to 120px so it absorbs a short page instead of pushing the chrome off
+  it. Verified by measuring world bounds at both full height and a 320px page: no overflow, no
+  overlap, and `.chat-list` correctly collapsing to its 120px floor.
+- **A renamed player kept sending chat under the old name.** Vivox stamps the sender name into each
+  message from the *login session* and exposes no setter for it, so `LoginOptions.DisplayName` -
+  set once at sign-in - was the real source of truth, not the name service. Renaming updated UGS
+  Authentication and the clan roster while the chat session kept the original name indefinitely.
+  (The gateway's `PlayerNameChanged` event was also raised but never subscribed to.)
+  `ICommunicationService.UpdateDisplayNameAsync` now applies a rename by rebuilding the session
+  under the new name and restoring channel membership, active voice channel, and mic/speaker state;
+  `SocialCoordinator.SetPlayerNameAsync` awaits it as part of the rename. Verified live on both
+  Global and Clan chat: messages sent before the rename keep the old name, messages after carry the
+  new one, and the session stays connected. Covered by a new Play Mode test,
+  `Rename_KeepsChatSessionAliveUnderNewName`.
+- The shard hash used `hash * 0x01000193`, a float64 multiply that loses precision past 2^53 and
+  corrupts the result — measured **15x** bucket skew on realistic 4-character tags, with empty
+  buckets. Switched to `Math.imul` and added a MurmurHash3 finalizer, because `% 16` keeps only the
+  low four bits and FNV-1a's low bits are its weakest. Measured spread is now 1.14x on tags and
+  1.10x on clan ids, verified against the shipped source rather than a retyped copy.
 - Emoji picker rendered one emoji per row instead of a wrapping grid. `.emoji-grid > .unity-scroll-view__content-container`
   matched nothing — Unity's `ScrollView` nests its real content container two levels deep, inside
   `unity-content-viewport`, under class `unity-scroll-view__content-container`, not as a direct

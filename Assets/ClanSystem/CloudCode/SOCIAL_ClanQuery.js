@@ -18,13 +18,38 @@ const fail = (code, message) => ({ ok: false, code: code, message: message, data
 
 const clanId_ = (id) => `clan-${id}`;
 const playerId_ = (id) => `player-${id}`;
-const INDEX_ID = "index";
+
+// Must match SOCIAL_ClanCommand.js. Cloud Code scripts cannot share modules, so the shard layout
+// is duplicated here the same way readPrivate/mutate already are.
+const SHARD_COUNT = 16;
+
+const clanShardId_ = (shard) => `index-c${shard}`;
 
 async function readPrivate(api, projectId, customId, key) {
   const res = await api.getPrivateCustomItems(projectId, customId, [key]);
   const results = (res && res.data && res.data.results) || [];
   if (results.length === 0) return { value: null, writeLock: null };
   return { value: results[0].value, writeLock: results[0].writeLock };
+}
+
+/// Reads every directory shard and merges them into one clanId -> summary map. Shards are fetched
+/// concurrently, so the fan-out costs one round trip, not SHARD_COUNT.
+async function readClanDirectory(api, projectId) {
+  const sources = [];
+  for (let shard = 0; shard < SHARD_COUNT; shard++) {
+    sources.push(readPrivate(api, projectId, clanShardId_(shard), "clans"));
+  }
+
+  const items = await Promise.all(sources);
+  const merged = {};
+  for (let i = 0; i < items.length; i++) {
+    const map = (items[i].value && items[i].value.map) || {};
+    for (const clanId of Object.keys(map)) {
+      merged[clanId] = map[clanId];
+    }
+  }
+
+  return merged;
 }
 
 function publicView(profile) {
@@ -142,8 +167,7 @@ module.exports = async ({ params, context, logger }) => {
     }
 
     case "search": {
-      const indexItem = await readPrivate(api, projectId, INDEX_ID, "clans");
-      const map = (indexItem.value && indexItem.value.map) || {};
+      const map = await readClanDirectory(api, projectId);
       const query = typeof payload.query === "string" ? payload.query.trim().toUpperCase() : "";
       const onlyPublic = payload.onlyPublic !== false;
       const limit = Math.min(CONFIG.searchLimitMax, Math.max(1, payload.limit || 20));

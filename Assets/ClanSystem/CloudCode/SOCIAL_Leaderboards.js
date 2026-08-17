@@ -18,6 +18,12 @@ const ok = (data) => ({ ok: true, code: "OK", message: "", data: data || {} });
 const fail = (code, message) => ({ ok: false, code: code, message: message, data: {} });
 
 const clanId_ = (id) => `clan-${id}`;
+
+// Must match SOCIAL_ClanCommand.js. The clan board resolves each leaderboard entry against the
+// clan directory, so it has to read the same shards the directory is written to.
+const SHARD_COUNT = 16;
+
+const clanShardId_ = (shard) => `index-c${shard}`;
 const playerId_ = (id) => `player-${id}`;
 
 async function readPrivate(api, projectId, customId, key) {
@@ -49,6 +55,26 @@ async function mutate(api, projectId, customId, key, mutator) {
     }
   }
   throw lastError || new Error("write conflict");
+}
+
+/// Reads every directory shard and merges them into one clanId -> summary map. Shards are fetched
+/// concurrently, so the fan-out costs one round trip, not SHARD_COUNT.
+async function readClanDirectory(api, projectId) {
+  const sources = [];
+  for (let shard = 0; shard < SHARD_COUNT; shard++) {
+    sources.push(readPrivate(api, projectId, clanShardId_(shard), "clans"));
+  }
+
+  const items = await Promise.all(sources);
+  const merged = {};
+  for (let i = 0; i < items.length; i++) {
+    const map = (items[i].value && items[i].value.map) || {};
+    for (const clanId of Object.keys(map)) {
+      merged[clanId] = map[clanId];
+    }
+  }
+
+  return merged;
 }
 
 function levelFor(xp) {
@@ -209,8 +235,7 @@ module.exports = async ({ params, context, logger }) => {
       const offset = Math.max(0, payload.offset || 0);
       const socialItem = await readPrivate(api, projectId, playerId_(callerId), "social");
       const myClanId = (socialItem.value && socialItem.value.clanId) || null;
-      const indexItem = await readPrivate(api, projectId, "index", "clans");
-      const index = (indexItem.value && indexItem.value.map) || {};
+      const index = await readClanDirectory(api, projectId);
 
       try {
         const res = await leaderboards.getLeaderboardScores(projectId, CONFIG.clanLeaderboardId, offset, limit);

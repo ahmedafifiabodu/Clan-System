@@ -45,6 +45,11 @@ namespace ClanSystem.Services
         private string _clanChannelName;
         private bool _isDisposed;
 
+        // The identity the current Vivox session was opened with. Vivox has no display-name setter,
+        // so a rename can only be applied by opening a new session - which needs these back.
+        private string _playerId;
+        private string _displayName;
+
         public VivoxCommunicationService(ClanSystemConfig config, CloudCodeVivoxTokenProvider tokenProvider)
         {
             _config = config != null ? config : throw new ArgumentNullException(nameof(config));
@@ -80,6 +85,9 @@ namespace ClanSystem.Services
 
         public async Task<SocialResult> LoginAsync(string playerId, string displayName, CancellationToken cancellationToken)
         {
+            _playerId = playerId;
+            _displayName = string.IsNullOrEmpty(displayName) ? playerId : displayName;
+
             SetState(CommConnectionState.Connecting, "Connecting to voice service...");
 
             try
@@ -100,7 +108,7 @@ namespace ClanSystem.Services
                 LoginOptions options = new LoginOptions
                 {
                     PlayerId = playerId,
-                    DisplayName = string.IsNullOrEmpty(displayName) ? playerId : displayName,
+                    DisplayName = _displayName,
                     ParticipantUpdateFrequency = ParticipantPropertyUpdateFrequency.FivePerSecond,
                 };
 
@@ -168,6 +176,65 @@ namespace ClanSystem.Services
                 ActiveVoiceChannel = null;
                 SetState(CommConnectionState.Disconnected, "Signed out");
             }
+        }
+
+        /// <summary>
+        /// Applies a new display name by rebuilding the session. Vivox stamps the display name into
+        /// every message from the login session and exposes no setter for it, so a rename cannot
+        /// take effect on the existing session - the only way to make new messages carry the new
+        /// name is to log in again under it. Channel membership and the microphone state are
+        /// restored afterwards so the rename is invisible apart from the name itself.
+        /// </summary>
+        public async Task<SocialResult> UpdateDisplayNameAsync(string displayName, CancellationToken cancellationToken)
+        {
+            string resolved = string.IsNullOrEmpty(displayName) ? _playerId : displayName;
+            if (string.Equals(resolved, _displayName, StringComparison.Ordinal))
+            {
+                return SocialResult.Success();
+            }
+
+            // Not connected yet: the next login will pick the new name up on its own.
+            if (!IsLoggedIn || string.IsNullOrEmpty(_playerId))
+            {
+                _displayName = resolved;
+                return SocialResult.Success();
+            }
+
+            string clanChannel = _clanChannelName;
+            CommChannelKind? activeVoice = ActiveVoiceChannel;
+            bool wasGlobalTextJoined = IsTextJoined(CommChannelKind.Global);
+            bool wasMicrophoneMuted = IsMicrophoneMuted;
+            bool wasSpeakerMuted = IsSpeakerMuted;
+
+            await LogoutAsync();
+
+            SocialResult login = await LoginAsync(_playerId, resolved, cancellationToken);
+            if (!login.IsSuccess)
+            {
+                return login;
+            }
+
+            // LoginAsync only auto-joins global text when the config asks for it; a player who was
+            // already in that channel keeps it either way.
+            if (wasGlobalTextJoined && !IsTextJoined(CommChannelKind.Global))
+            {
+                await JoinTextAsync(CommChannelKind.Global, cancellationToken);
+            }
+
+            if (!string.IsNullOrEmpty(clanChannel))
+            {
+                _clanChannelName = clanChannel;
+                await JoinTextAsync(CommChannelKind.Clan, cancellationToken);
+            }
+
+            if (activeVoice.HasValue)
+            {
+                await JoinVoiceAsync(activeVoice.Value, cancellationToken);
+            }
+
+            SetMicrophoneMuted(wasMicrophoneMuted);
+            SetSpeakerMuted(wasSpeakerMuted);
+            return SocialResult.Success();
         }
 
         /// <summary>

@@ -252,6 +252,42 @@ namespace ClanSystem.Tests
         }
 
         /// <summary>
+        /// A rename has to reach the chat transport, not just the name service. Vivox stamps the
+        /// sender name into each message from its login session and has no setter for it, so the
+        /// session is rebuilt under the new name - this guards the rebuild, which is the part that
+        /// can leave the player silently signed out of chat.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator Rename_KeepsChatSessionAliveUnderNewName()
+        {
+            yield return Run(async () =>
+            {
+                SocialResult start = await StartAsync("rename");
+                Assert.IsTrue(start.IsSuccess, "Sign-in failed: " + start.Message);
+
+                ICommunicationService communication = _coordinator.Communication;
+                if (communication == null || !communication.IsLoggedIn)
+                {
+                    Assert.Ignore("Voice/chat transport is not connected; nothing to verify.");
+                }
+
+                string renamed = "Ren" + System.DateTime.UtcNow.Ticks % 100000;
+                SocialResult rename = await _coordinator.SetPlayerNameAsync(renamed);
+                Assert.IsTrue(rename.IsSuccess, "Rename failed: " + rename.Message);
+
+                // The session must survive the rebuild, or the player is renamed straight out of chat.
+                Assert.IsTrue(communication.IsLoggedIn, "Chat session did not come back up after the rename.");
+
+                // And it must accept a send under the new identity.
+                SocialResult sent = await communication.SendTextAsync(
+                    CommChannelKind.Global, "rename probe " + renamed, _coordinator.Lifetime);
+                Assert.IsTrue(sent.IsSuccess, "Could not send after rename: " + sent.Message);
+
+                await CleanUpClanAsync();
+            });
+        }
+
+        /// <summary>
         /// Bridges async work into a UnityTest coroutine and surfaces exceptions as test failures
         /// rather than letting them disappear into an unobserved task.
         /// </summary>

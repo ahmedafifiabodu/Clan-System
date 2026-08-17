@@ -63,6 +63,7 @@ Friends on the left with presence and clan tags, the caller's own clan roster on
 | Display names | Player Names | The server reads names from the name service rather than trusting the client |
 | Friends, presence | Friends 1.2.0 | Official social graph and presence events |
 | Clan records, rosters, invites | Cloud Save **private custom data** | Unreachable with a player token — a client cannot read another clan's roster even by forging requests |
+| Clan directory (search) | Cloud Save private custom data, **sharded across 16 items** | Cloud Save query indexes only cover *player* data; clan records live in private custom data by design, so search fans out over shards instead |
 | All mutations, permissions | Cloud Code 2.10.4 (JS) | One choke point for authority, validation, rate limiting and write-lock retries |
 | Text and voice chat | Vivox 16.11.0 | One transport for both, with push delivery, server-held history, participant presence and speaking state |
 | Rankings | Leaderboards 2.3.4 | Real ranking service; scores written only from Cloud Code |
@@ -200,11 +201,16 @@ player ids, so a second run inside 60s hits the per-player clan-create cooldown.
   switching, speaking indicators with real audio, muting another player, and reconnect behaviour.
   The code paths exist (`SocialState.ClanMembershipChanged` drives channel resync) but are untested
   under real concurrency.
-- **Clan search scans a single index item.** Fine into the low thousands of clans; beyond that, move
-  to a Cloud Save index with a dashboard-configured query.
-- **Disband attempts a real leaderboard entry delete** via the Leaderboards Admin API, falling back
-  to zeroing the entry until an Admin-role service account is provisioned in Secret Manager. Zeroed
-  entries are filtered out server-side when the clan board is built, but not removed.
+- **Disband deletes the clan's leaderboard entry** via the Leaderboards Admin API. Cloud Code's own
+  `context.serviceToken` does not carry the *Leaderboards Admin* role, so it falls through to a
+  service account whose key pair (`UGS_SA_KEY_ID` / `UGS_SA_SECRET_KEY` in Secret Manager) is sent
+  as Basic auth. Verified live: real deletion, `leaderboardRemovalMethod: "serviceAccount"`. If the
+  credentials are ever removed it degrades to zeroing the entry, which the clan board filters out
+  but does not remove.
+- **Renaming briefly rebuilds the chat session.** Vivox stamps the sender name into each message
+  from its login session and offers no setter, so a rename logs out and back in under the new name,
+  restoring channels, microphone and speaker state. Messages already sent keep the name they were
+  sent under - server-held history is not rewritten.
 - **No profanity filter in the old sense.** Vivox Safe Text owns that now, gated through the two
   moderation Cloud Code scripts above; dashboard wiring for both is not yet confirmed applied.
 - **`runInBackground` must stay enabled.** With it off, every async request freezes whenever the

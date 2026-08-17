@@ -413,6 +413,18 @@ namespace ClanSystem.Services
 
             Report($"Name set to {result.Value}.", false);
 
+            // The chat transport stamps the sender name into each message from its own session, so
+            // it has to be told about the rename as well - otherwise new messages keep going out
+            // under the old name even though the roster shows the new one.
+            if (_communication != null)
+            {
+                SocialResult applied = await _communication.UpdateDisplayNameAsync(result.Value, Lifetime);
+                if (!applied.IsSuccess)
+                {
+                    Report(applied.Message, true);
+                }
+            }
+
             // A rename must reach the clan roster too; the server re-reads the name service on
             // the next command, so a cheap refresh is enough to propagate it.
             await RefreshSnapshotAsync();
