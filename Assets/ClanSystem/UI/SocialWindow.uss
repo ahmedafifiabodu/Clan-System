@@ -629,6 +629,9 @@
     padding: 8px;
     margin-top: 8px;
     max-height: 200px;
+    /* Chrome, like the rows above: without this the picker is squeezed flat when it opens and the
+       emoji grid is clipped to a sliver. */
+    flex-shrink: 0;
 }
 
 .emoji-picker.visible {
