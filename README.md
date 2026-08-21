@@ -3,7 +3,34 @@
 A server-authoritative clan, chat, voice, friends and leaderboard system for Unity 6, built on Unity
 Gaming Services. Every state change runs in Cloud Code; the client is treated as untrusted.
 
-Unity **6000.3.10f1** · URP · UI Toolkit
+Unity **6000.3.10f1** · URP · UI Toolkit · MIT
+
+---
+
+## Install
+
+Package Manager → **Add package from git URL**:
+
+```
+https://github.com/ahmedafifiabodu/Clan-System.git?path=Assets/ClanSystem
+```
+
+Or add it to `Packages/manifest.json` directly:
+
+```json
+"com.ahmedafifi.clan-system": "https://github.com/ahmedafifiabodu/Clan-System.git?path=Assets/ClanSystem"
+```
+
+The package pulls its own UGS dependencies. Leaderboards and Cloud Save are **not** among them:
+the client never talks to either directly, so both are reached only through Cloud Code.
+
+Installing the package is not enough to run it — the backend has to exist first. Create the three
+Cloud Save indexes, deploy the Cloud Code scripts, create the two leaderboards and set the Vivox
+secrets, in that order. Full steps and the reasoning behind the storage layout are in
+[docs/cloud-save-layout.md](docs/cloud-save-layout.md).
+
+To run the demo instead of consuming the package, clone this repository and open it as a Unity
+project — the demo scene is `Assets/ClanSystem/Scenes/SocialDemo.unity`.
 
 ---
 
