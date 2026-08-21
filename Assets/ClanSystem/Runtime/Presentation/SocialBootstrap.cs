@@ -12,6 +12,12 @@ namespace ClanSystem.Presentation
     [RequireComponent(typeof(UIDocument))]
     public class SocialBootstrap : MonoBehaviour
     {
+        /// <summary>Spinner tick. 16ms is one frame at 60fps, which is what makes it look smooth.</summary>
+        private const int _spinnerIntervalMs = 16;
+
+        /// <summary>Degrees per tick. 6 at 60fps is one turn per second.</summary>
+        private const float _spinnerDegreesPerTick = 6f;
+
         [SerializeField] private ClanSystemConfig _config;
         [SerializeField] private bool _signInOnStart = false;
         [Tooltip("Authentication profile used when signing in. Different profiles produce different player ids on the same machine.")]
@@ -27,6 +33,12 @@ namespace ClanSystem.Presentation
         private Button _signInButton;
         private Label _signInStatus;
 
+        private VisualElement _signInProgress;
+        private VisualElement _signInSpinner;
+        private Label _signInStage;
+        private IVisualElementScheduledItem _spinnerHandle;
+        private float _spinnerAngle;
+
         private void Awake()
         {
             _document = GetComponent<UIDocument>();
@@ -41,6 +53,9 @@ namespace ClanSystem.Presentation
             _profileField = root.Q<TextField>("profile-field");
             _signInButton = root.Q<Button>("signin-button");
             _signInStatus = root.Q<Label>("signin-status");
+            _signInProgress = root.Q<VisualElement>("signin-progress");
+            _signInSpinner = root.Q<VisualElement>("signin-spinner");
+            _signInStage = root.Q<Label>("signin-stage");
 
             if (_config == null)
             {
@@ -60,6 +75,7 @@ namespace ClanSystem.Presentation
 
         private void OnDestroy()
         {
+            _spinnerHandle?.Pause();
             _window?.Dispose();
             _coordinator?.Dispose();
         }
@@ -68,7 +84,53 @@ namespace ClanSystem.Presentation
         {
             _signInButton.SetEnabled(false);
             ShowSignInStatus(string.Empty);
+            SetProgressVisible(true, "Starting Unity Gaming Services...");
             _ = SignInAsync();
+        }
+
+        /// <summary>
+        /// Shows or hides the sign-in spinner. The rotation is driven from a scheduler tick rather
+        /// than a stylesheet animation because UI Toolkit has no keyframes - only transitions, which
+        /// cannot loop. The scheduler is paused while hidden so an idle sign-in screen costs nothing.
+        /// </summary>
+        private void SetProgressVisible(bool isVisible, string stage)
+        {
+            if (_signInProgress == null)
+            {
+                return;
+            }
+
+            _signInProgress.style.display = isVisible ? DisplayStyle.Flex : DisplayStyle.None;
+            ShowSignInStage(stage);
+
+            if (isVisible)
+            {
+                _spinnerHandle ??= _signInProgress.schedule.Execute(AdvanceSpinner).Every(_spinnerIntervalMs);
+                _spinnerHandle.Resume();
+            }
+            else
+            {
+                _spinnerHandle?.Pause();
+            }
+        }
+
+        private void AdvanceSpinner()
+        {
+            _spinnerAngle = (_spinnerAngle + _spinnerDegreesPerTick) % 360f;
+            _signInSpinner.style.rotate = new StyleRotate(new Rotate(new Angle(_spinnerAngle, AngleUnit.Degree)));
+        }
+
+        private void ShowSignInStage(string stage)
+        {
+            if (_signInStage != null)
+            {
+                _signInStage.text = stage ?? string.Empty;
+            }
+        }
+
+        private void StartupStageChangedCallback(string stage)
+        {
+            ShowSignInStage(stage);
         }
 
         private async System.Threading.Tasks.Task SignInAsync()
@@ -84,8 +146,12 @@ namespace ClanSystem.Presentation
             VivoxCommunicationService communication = new VivoxCommunicationService(_config, tokenProvider);
 
             _coordinator = new SocialCoordinator(_config, auth, friends, backend, communication);
+            _coordinator.StartupStageChanged += StartupStageChangedCallback;
 
             SocialResult result = await _coordinator.StartAsync(profile);
+            _coordinator.StartupStageChanged -= StartupStageChangedCallback;
+            SetProgressVisible(false, string.Empty);
+
             if (!result.IsSuccess)
             {
                 ShowSignInStatus(result.Message);
@@ -100,6 +166,10 @@ namespace ClanSystem.Presentation
 
             _window = new SocialWindowController(_document.rootVisualElement, _coordinator);
             _window.RefreshHeader();
+
+            // Only now: friends and voice report their failures as status messages, and the window
+            // is what listens for those. Starting them any earlier would drop the message.
+            _coordinator.StartBackgroundServices();
         }
 
         private void ShowSignInStatus(string message)

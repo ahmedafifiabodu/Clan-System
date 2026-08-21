@@ -5,7 +5,7 @@ const vivox = require("@unity-services/vivox-0.1");
 //
 // The Vivox client cannot join any channel without a signed token, and only this script holds the
 // signing key. Every request is checked against the caller's *real* clan membership, read from
-// Cloud Save private custom data - never from the request. A player who edits a clan id client-side
+// Cloud Save protected player data - never from the request. A player who edits a clan id client-side
 // simply fails to get a token, so the join is refused by the Vivox service itself.
 const CONFIG = {
   globalChannelName: "global",
@@ -23,8 +23,9 @@ const CONFIG = {
 const ok = (data) => ({ ok: true, code: "OK", message: "", data: data || {} });
 const fail = (code, message) => ({ ok: false, code: code, message: message, data: {} });
 
-async function readPrivate(api, projectId, customId, key) {
-  const res = await api.getPrivateCustomItems(projectId, customId, [key]);
+// Per-player state is protected player data: the player reads it, only the server writes it.
+async function readPlayer(api, projectId, playerId, key) {
+  const res = await api.getProtectedItems(projectId, playerId, [key]);
   const results = (res && res.data && res.data.results) || [];
   if (results.length === 0) return null;
   return results[0].value;
@@ -74,7 +75,7 @@ module.exports = async ({ params, context, logger, secretManager }) => {
   // SOCIAL_ModerationAutomation.js. Enforcing here is what gives them teeth: Vivox admits no client
   // without a token, so a muted or banned player cannot rejoin a channel by any client-side means.
   const moderationApi = new DataApi(context);
-  const moderation = await readPrivate(moderationApi, context.projectId, `player-${callerId}`, "moderation");
+  const moderation = await readPlayer(moderationApi, context.projectId, callerId, "moderation");
   if (moderation) {
     const now = Date.now();
 
@@ -103,7 +104,7 @@ module.exports = async ({ params, context, logger, secretManager }) => {
 
     if (channelName.indexOf(CONFIG.clanChannelPrefix) === 0) {
       const api = new DataApi(context);
-      const social = await readPrivate(api, context.projectId, `player-${callerId}`, "social");
+      const social = await readPlayer(api, context.projectId, callerId, "social");
       const realClanId = (social && social.clanId) || null;
 
       if (!realClanId) {

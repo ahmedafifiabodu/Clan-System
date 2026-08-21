@@ -1,0 +1,29 @@
+{
+  "indexConfigs": {
+    "custom": [
+      {
+        "indexName": "clan_browse",
+        "accessClass": "PRIVATE",
+        "fields": [
+          { "key": "dirPublic", "asc": true },
+          { "key": "dirScore", "asc": false }
+        ]
+      },
+      {
+        "indexName": "clan_by_name",
+        "accessClass": "PRIVATE",
+        "fields": [
+          { "key": "dirPublic", "asc": true },
+          { "key": "dirNameUpper", "asc": true }
+        ]
+      },
+      {
+        "indexName": "clan_by_tag",
+        "accessClass": "PRIVATE",
+        "fields": [
+          { "key": "dirTag", "asc": true }
+        ]
+      }
+    ]
+  }
+}

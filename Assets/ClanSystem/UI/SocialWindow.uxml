@@ -16,6 +16,10 @@
                 <engine:Label text="Profile (use a different profile per test client)" class="field-label" />
                 <engine:TextField name="profile-field" value="default" class="text-field" />
                 <engine:Button name="signin-button" text="Sign in anonymously" class="button primary wide" />
+                <engine:VisualElement name="signin-progress" class="signin-progress">
+                    <engine:VisualElement name="signin-spinner" class="spinner" />
+                    <engine:Label name="signin-stage" text="" class="signin-stage" />
+                </engine:VisualElement>
                 <engine:Label name="signin-status" text="" class="status-line" />
             </engine:VisualElement>
         </engine:VisualElement>
@@ -135,48 +139,86 @@
                 </engine:VisualElement>
 
                 <!-- CHAT + VOICE -->
+                <!-- CHAT: conversation fills the page; voice lives in its own rail beside it.
+                     Stacking them vertically cost four bands of chrome before the first message. -->
                 <engine:VisualElement name="page-chat" class="page">
+                    <engine:VisualElement name="chat-split" class="chat-split">
 
-                    <!-- Voice bar: state, channel switching, mic/speaker, live participants -->
-                    <engine:VisualElement class="voice-bar">
-                        <engine:Label name="voice-status" text="VOICE OFFLINE" class="voice-status" />
-                        <engine:VisualElement class="voice-actions">
-                            <engine:Button name="voice-join-global" text="Global voice" class="button" />
-                            <engine:Button name="voice-join-clan" text="Clan voice" class="button" />
-                            <engine:Button name="voice-leave" text="Leave voice" class="button ghost" />
-                            <engine:Button name="voice-mic" text="Mic on" class="button" />
-                            <engine:Button name="voice-speaker" text="Sound on" class="button" />
+                        <engine:VisualElement class="chat-column">
+                            <engine:VisualElement class="chat-head">
+                                <engine:VisualElement class="subtabs">
+                                    <engine:Button name="chat-tab-global" text="GLOBAL" class="subtab" />
+                                    <engine:Button name="chat-tab-clan" text="CLAN" class="subtab" />
+                                </engine:VisualElement>
+                                <engine:Label name="chat-connection" text="OFFLINE" class="conn-pill" />
+                            </engine:VisualElement>
+
+                            <engine:ScrollView name="chat-list" class="chat-list" />
+                            <engine:Label name="chat-empty" text="No messages yet. Say hello." class="empty-state" />
+
+                            <engine:VisualElement name="emoji-picker" class="emoji-picker">
+                                <engine:VisualElement name="emoji-categories" class="emoji-categories" />
+                                <engine:ScrollView name="emoji-grid" class="emoji-grid" />
+                            </engine:VisualElement>
+
+                            <engine:VisualElement class="chat-input-row">
+                                <engine:Button name="chat-emoji-toggle" text="Emoji" class="button ghost" />
+                                <engine:TextField name="chat-field" class="text-field grow" />
+                                <engine:Button name="chat-send" text="Send" class="button primary" />
+                            </engine:VisualElement>
+                            <engine:Label name="chat-hint" text="" class="hint" />
                         </engine:VisualElement>
-                    </engine:VisualElement>
 
-                    <engine:VisualElement class="voice-people">
-                        <engine:Label text="IN VOICE" class="section-title" />
-                        <engine:ScrollView name="voice-participants" class="list short" />
-                        <engine:Label name="voice-participants-empty" text="Join a voice channel to see who is connected." class="empty-state" />
-                    </engine:VisualElement>
+                        <!-- Voice rail. Reading order matches how the feature is used: where am I,
+                             where can I go, who is here, what are my controls. -->
+                        <engine:VisualElement name="voice-rail" class="voice-rail">
+                            <engine:VisualElement class="voice-rail-head">
+                                <engine:Label text="VOICE" class="section-title flush" />
+                                <engine:Label name="voice-status" text="OFFLINE" class="conn-pill" />
+                            </engine:VisualElement>
 
-                    <engine:VisualElement class="chat-head">
-                        <engine:VisualElement class="subtabs">
-                            <engine:Button name="chat-tab-global" text="GLOBAL" class="subtab" />
-                            <engine:Button name="chat-tab-clan" text="CLAN" class="subtab" />
+                            <engine:VisualElement class="segmented">
+                                <engine:Button name="voice-join-global" text="Global" class="seg seg-left" />
+                                <engine:Button name="voice-join-clan" text="Clan" class="seg seg-right" />
+                            </engine:VisualElement>
+
+                            <engine:VisualElement class="voice-list-wrap">
+                                <engine:ScrollView name="voice-participants" class="list voice-list" />
+                                <engine:Label name="voice-participants-empty" text="Join a voice channel to see who is connected." class="empty-state voice-empty" />
+                            </engine:VisualElement>
+
+                            <!-- Control dock. Mic and speaker are the two controls a player reaches
+                                 for mid-conversation, so they are large, icon-led and adjacent;
+                                 leaving is rare and deliberately quieter. -->
+                            <engine:VisualElement class="voice-dock">
+                                <engine:Button name="voice-mic" class="icon-button">
+                                    <engine:VisualElement class="icon icon-mic" picking-mode="Ignore">
+                                        <engine:VisualElement class="mic-capsule" />
+                                        <engine:VisualElement class="mic-arc" />
+                                        <engine:VisualElement class="mic-stem" />
+                                        <engine:VisualElement class="mic-base" />
+                                    </engine:VisualElement>
+                                    <engine:VisualElement name="mic-meter" class="mic-meter" picking-mode="Ignore">
+                                        <engine:VisualElement name="mic-meter-fill" class="mic-meter-fill" />
+                                    </engine:VisualElement>
+                                    <engine:VisualElement class="icon-slash" picking-mode="Ignore" />
+                                </engine:Button>
+
+                                <engine:Button name="voice-speaker" class="icon-button">
+                                    <engine:VisualElement class="icon icon-speaker" picking-mode="Ignore">
+                                        <engine:VisualElement class="spk-body" />
+                                        <engine:VisualElement class="spk-cone" />
+                                        <engine:VisualElement class="spk-wave near" />
+                                        <engine:VisualElement class="spk-wave far" />
+                                    </engine:VisualElement>
+                                    <engine:VisualElement class="icon-slash" picking-mode="Ignore" />
+                                </engine:Button>
+
+                                <engine:Button name="voice-leave" text="Leave" class="button ghost dock-leave" />
+                            </engine:VisualElement>
                         </engine:VisualElement>
-                        <engine:Label name="chat-connection" text="OFFLINE" class="conn-pill" />
-                    </engine:VisualElement>
 
-                    <engine:ScrollView name="chat-list" class="chat-list" />
-                    <engine:Label name="chat-empty" text="No messages yet. Say hello." class="empty-state" />
-
-                    <engine:VisualElement name="emoji-picker" class="emoji-picker">
-                        <engine:VisualElement name="emoji-categories" class="emoji-categories" />
-                        <engine:ScrollView name="emoji-grid" class="emoji-grid" />
                     </engine:VisualElement>
-
-                    <engine:VisualElement class="chat-input-row">
-                        <engine:Button name="chat-emoji-toggle" text="Emoji" class="button ghost" />
-                        <engine:TextField name="chat-field" class="text-field grow" />
-                        <engine:Button name="chat-send" text="Send" class="button primary" />
-                    </engine:VisualElement>
-                    <engine:Label name="chat-hint" text="" class="hint" />
                 </engine:VisualElement>
 
                 <!-- LEADERBOARDS -->

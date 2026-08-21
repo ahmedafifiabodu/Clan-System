@@ -42,37 +42,57 @@
     display: none;
 }
 
+/* Fixed chrome. Both this and .tabbar defaulted to flex-shrink: 1, so a tall page below squeezed
+   them vertically - the header rendered 47px tall while its content needed 72px, which clipped the
+   player name and pushed the meta line down into the tab bar. Only .content yields now. */
 .header {
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
+    flex-shrink: 0;
     padding: 12px 18px;
     background-color: rgb(22, 26, 38);
     border-bottom-width: 1px;
     border-bottom-color: rgb(44, 52, 72);
 }
 
+/* The identity block is the only part of the header allowed to yield. Both sides defaulted to
+   flex-shrink: 1, so a narrow window squeezed the name column while its labels kept their full
+   text - and UI Toolkit does not clip overflow, so the name painted straight over the rename
+   field. min-width: 0 is what lets a flex child shrink below its content at all. */
 .header-identity {
     flex-direction: column;
+    flex-shrink: 1;
+    min-width: 0;
 }
 
 .header-name {
     font-size: 18px;
     -unity-font-style: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .header-meta {
     font-size: 12px;
     color: rgb(140, 150, 170);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
+/* Fixed chrome: these controls are the same size at every window width, so they must not be the
+   thing that shrinks. */
 .header-actions {
     flex-direction: row;
     align-items: center;
+    flex-shrink: 0;
 }
 
 .tabbar {
     flex-direction: row;
+    flex-shrink: 0;
     background-color: rgb(20, 23, 34);
     padding: 6px 12px;
     border-bottom-width: 1px;
@@ -99,8 +119,12 @@
     -unity-font-style: bold;
 }
 
+/* The one row that absorbs a short window. min-height: 0 lets it shrink below its content, which
+   a flex child cannot do by default - without it the page would push the chrome off instead. */
 .content {
     flex-grow: 1;
+    flex-shrink: 1;
+    min-height: 0;
 }
 
 .page {
@@ -254,6 +278,34 @@
     margin-top: 4px;
     margin-bottom: 6px;
     white-space: normal;
+}
+
+/* Sign-in progress. Hidden until sign-in starts; SocialBootstrap toggles it. */
+.signin-progress {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 10px;
+    display: none;
+}
+
+/* Ring with one bright quadrant. UI Toolkit has no keyframes, so SocialBootstrap advances the
+   rotation on a scheduler tick - the arc is what makes that rotation visible. */
+.spinner {
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    border-width: 2px;
+    border-color: rgb(52, 62, 86);
+    border-top-color: rgb(96, 165, 250);
+    flex-shrink: 0;
+}
+
+.signin-stage {
+    font-size: 12px;
+    color: rgb(150, 162, 186);
+    margin-left: 10px;
+    white-space: normal;
+    flex-shrink: 1;
 }
 
 .status-line {
@@ -520,54 +572,116 @@
 
 /* ---------- Voice ---------- */
 
-.voice-bar {
+/* The chat page is one row: conversation on the left, voice rail on the right. Only the
+   conversation column yields when the window narrows - UI Toolkit does not clip overflow, so a
+   squeezed fixed-width rail would paint its controls over the messages. */
+.chat-split {
     flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
+    flex-grow: 1;
+}
+
+.chat-column {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 220px;
+}
+
+.voice-rail {
+    width: 268px;
+    flex-shrink: 0;
+    flex-direction: column;
+    margin-left: 12px;
+    padding: 10px;
     background-color: rgb(24, 28, 40);
     border-radius: 8px;
     border-width: 1px;
     border-color: rgb(44, 52, 72);
-    padding: 8px 12px;
-    margin-bottom: 8px;
-    flex-shrink: 0;
 }
 
-.voice-actions {
+.voice-rail-head {
     flex-direction: row;
     align-items: center;
-}
-
-.voice-status {
-    font-size: 11px;
-    -unity-font-style: bold;
-    letter-spacing: 1px;
-    color: rgb(150, 158, 178);
-}
-
-.voice-status.online {
-    color: rgb(90, 205, 130);
-}
-
-.voice-status.error {
-    color: rgb(235, 120, 120);
-}
-
-/* Fixed-height chrome rows must never be shrunk below their content. UI Toolkit does not clip
-   overflow, so a squeezed row keeps painting its children - they land on top of whatever follows
-   instead of being cut off or scrolled. Only .chat-list absorbs a tight page height. */
-.voice-people {
-    margin-bottom: 8px;
+    justify-content: space-between;
+    margin-bottom: 10px;
     flex-shrink: 0;
 }
 
-.list.short {
-    max-height: 120px;
+/* Segmented control. Two mutually exclusive destinations read as one control, where two separate
+   buttons read as two unrelated actions. */
+.segmented {
+    flex-direction: row;
+    margin-bottom: 10px;
+    flex-shrink: 0;
+}
+
+.seg {
+    flex-grow: 1;
+    flex-basis: 0;
+    background-color: rgb(28, 33, 47);
+    border-width: 1px;
+    border-color: rgb(44, 52, 72);
+    color: rgb(160, 170, 190);
+    padding: 6px 0;
+    margin: 0;
+    border-radius: 0;
+}
+
+.seg:hover {
+    background-color: rgb(36, 42, 60);
+}
+
+.seg:disabled {
+    opacity: 0.4;
+}
+
+/* UI Toolkit has no :first-child / :last-child, so the ends of the segmented control are marked
+   explicitly in the UXML. */
+.seg.seg-left {
+    border-top-left-radius: 6px;
+    border-bottom-left-radius: 6px;
+}
+
+.seg.seg-right {
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+    border-left-width: 0;
+}
+
+.seg.selected {
+    background-color: rgb(48, 110, 200);
+    border-color: rgb(70, 140, 235);
+    color: rgb(240, 246, 255);
+}
+
+/* The rail's only flexible row, so the dock below it can never be pushed off the page. The empty
+   state is laid over the list rather than stacked under it: below the list it left a large empty
+   box with a caption beneath, which reads as a broken panel rather than as an empty one. */
+.voice-list-wrap {
+    flex-grow: 1;
+    flex-shrink: 1;
     min-height: 60px;
 }
 
+.voice-empty {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 12px;
+    -unity-text-align: middle-center;
+    white-space: normal;
+}
+
+.voice-list {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-height: 60px;
+    max-height: none;
+}
+
 .voice-row {
-    padding: 5px 10px;
+    padding: 5px 8px;
 }
 
 .voice-row.speaking {
@@ -580,6 +694,7 @@
     border-radius: 5px;
     margin-right: 8px;
     background-color: rgb(70, 78, 98);
+    flex-shrink: 0;
 }
 
 .speaking-dot.active {
@@ -587,15 +702,289 @@
 }
 
 .volume-slider {
-    width: 90px;
-    margin-left: 8px;
+    width: 68px;
+    margin-left: 6px;
 }
+
+/* ---------- Voice dock ---------- */
+
+.voice-dock {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top-width: 1px;
+    border-top-color: rgb(44, 52, 72);
+    flex-shrink: 0;
+}
+
+/* 44px is the smallest comfortable touch target, and the same size works for a mouse. Mic and
+   speaker are the same size because neither is the secondary of the pair. */
+.icon-button {
+    width: 44px;
+    height: 44px;
+    margin: 0 8px 0 0;
+    padding: 0;
+    background-color: rgb(38, 44, 62);
+    border-width: 1px;
+    border-color: rgb(56, 64, 86);
+    border-radius: 8px;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon-button:hover {
+    background-color: rgb(48, 56, 78);
+}
+
+.icon-button:disabled {
+    opacity: 0.35;
+}
+
+/* State is carried by colour AND by the slash overlay, so it survives colour-blindness and a
+   greyscale screenshot. Text is never the only signal. */
+.icon-button.on {
+    background-color: rgba(52, 150, 96, 0.22);
+    border-color: rgb(70, 180, 118);
+}
+
+.icon-button.off {
+    background-color: rgba(170, 60, 68, 0.25);
+    border-color: rgb(196, 78, 88);
+}
+
+/* Speaking outline. Brighter than the idle "on" border so the meter is not the only cue that the
+   transport is hearing the player. */
+.icon-button.live {
+    border-color: rgb(120, 235, 160);
+}
+
+.icon {
+    width: 24px;
+    height: 24px;
+}
+
+.icon-button.on .icon {
+    opacity: 1;
+}
+
+.icon-button.off .icon {
+    opacity: 0.75;
+}
+
+/* Slash for the muted state, drawn over the icon. Hidden unless the button is off. */
+.icon-slash {
+    position: absolute;
+    width: 30px;
+    height: 2px;
+    border-radius: 1px;
+    background-color: rgb(255, 168, 172);
+    rotate: -45deg;
+    display: none;
+}
+
+.icon-button.off .icon-slash {
+    display: flex;
+}
+
+/* ---------- Icon glyphs ----------
+   Drawn from elements rather than shipped as textures: the project has no icon set, and two
+   glyphs do not justify introducing an art pipeline and its import settings. Children are
+   absolutely positioned inside the 24x24 .icon box. */
+
+.icon-mic {
+    align-items: center;
+}
+
+.mic-capsule {
+    position: absolute;
+    top: 2px;
+    left: 8px;
+    width: 8px;
+    height: 12px;
+    border-radius: 4px;
+    background-color: rgb(226, 234, 248);
+}
+
+/* Open-bottom ring: the cradle the capsule sits in. */
+.mic-arc {
+    position: absolute;
+    top: 9px;
+    left: 4px;
+    width: 16px;
+    height: 9px;
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-bottom-width: 2px;
+    border-top-width: 0;
+    border-color: rgb(226, 234, 248);
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.mic-stem {
+    position: absolute;
+    top: 18px;
+    left: 11px;
+    width: 2px;
+    height: 3px;
+    background-color: rgb(226, 234, 248);
+}
+
+.mic-base {
+    position: absolute;
+    top: 21px;
+    left: 7px;
+    width: 10px;
+    height: 2px;
+    border-radius: 1px;
+    background-color: rgb(226, 234, 248);
+}
+
+.icon-button.on .mic-capsule,
+.icon-button.on .mic-stem,
+.icon-button.on .mic-base {
+    background-color: rgb(150, 240, 186);
+}
+
+.icon-button.on .mic-arc {
+    border-color: rgb(150, 240, 186);
+}
+
+.icon-button.off .mic-capsule,
+.icon-button.off .mic-stem,
+.icon-button.off .mic-base {
+    background-color: rgb(255, 168, 172);
+}
+
+.icon-button.off .mic-arc {
+    border-color: rgb(255, 168, 172);
+}
+
+.icon-speaker {
+    align-items: center;
+}
+
+.spk-body {
+    position: absolute;
+    top: 8px;
+    left: 2px;
+    width: 5px;
+    height: 8px;
+    background-color: rgb(226, 234, 248);
+}
+
+/* Triangle via the border trick: a zero-size box whose right border is the only opaque one
+   collapses into a left-pointing wedge. */
+.spk-cone {
+    position: absolute;
+    top: 4px;
+    left: 6px;
+    width: 0;
+    height: 0;
+    border-top-width: 8px;
+    border-bottom-width: 8px;
+    border-right-width: 6px;
+    border-left-width: 0;
+    border-top-color: rgba(0, 0, 0, 0);
+    border-bottom-color: rgba(0, 0, 0, 0);
+    border-right-color: rgb(226, 234, 248);
+}
+
+/* Crescents: only the right edge of a rounded box is drawn, which reads as a radiating arc. */
+.spk-wave {
+    position: absolute;
+    border-right-width: 2px;
+    border-top-width: 0;
+    border-bottom-width: 0;
+    border-left-width: 0;
+    border-color: rgb(226, 234, 248);
+}
+
+.spk-wave.near {
+    top: 8px;
+    left: 12px;
+    width: 5px;
+    height: 8px;
+    border-radius: 4px;
+}
+
+.spk-wave.far {
+    top: 5px;
+    left: 14px;
+    width: 7px;
+    height: 14px;
+    border-radius: 7px;
+}
+
+.icon-button.on .spk-body,
+.icon-button.on .spk-cone {
+    border-right-color: rgb(150, 240, 186);
+    background-color: rgb(150, 240, 186);
+}
+
+.icon-button.on .spk-wave {
+    border-color: rgb(150, 240, 186);
+}
+
+.icon-button.off .spk-body {
+    background-color: rgb(255, 168, 172);
+}
+
+.icon-button.off .spk-cone {
+    border-right-color: rgb(255, 168, 172);
+}
+
+/* Incoming audio is off, so radiating waves would be a lie. */
+.icon-button.off .spk-wave {
+    display: none;
+}
+
+/* ---------- Microphone level ----------
+   Driven by the transport's own measured audio energy. Sits inside the mic button as a rising
+   floor rather than beside it as a separate widget, so level and mute state are one object. */
+.mic-meter {
+    position: absolute;
+    bottom: 3px;
+    left: 5px;
+    width: 34px;
+    height: 3px;
+    border-radius: 2px;
+    background-color: rgba(120, 140, 170, 0.28);
+    overflow: hidden;
+    display: none;
+}
+
+.icon-button.on .mic-meter {
+    display: flex;
+}
+
+.mic-meter-fill {
+    width: 0;
+    height: 3px;
+    border-radius: 2px;
+    background-color: rgb(110, 225, 158);
+}
+
+.dock-leave {
+    margin-left: auto;
+    margin-right: 0;
+    font-size: 12px;
+    padding: 6px 10px;
+}
+
+/* ---------- Chat head ---------- */
 
 .chat-head {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
     flex-shrink: 0;
+}
+
+.section-title.flush {
+    margin-top: 0;
+    margin-bottom: 0;
 }
 
 .conn-pill {
@@ -616,6 +1005,37 @@
 .conn-pill.error {
     background-color: rgba(200, 80, 90, 0.25);
     color: rgb(240, 150, 150);
+}
+
+/* ---------- Narrow layout ----------
+   USS has no media queries, so SocialWindowController toggles this class from the page's own
+   width. Below the breakpoint the rail becomes a compact strip above the conversation: the
+   participant list collapses, and the dock stays, because mute is the control a player needs
+   most on a small screen. */
+/* column-reverse, not column: UI Toolkit has no flex `order`, and the rail is the second child.
+   Reversing is what lifts it above the conversation - stacked the other way it lands under the
+   message input, which puts the mute button below the thing the player is typing into. */
+.chat-split.narrow {
+    flex-direction: column-reverse;
+}
+
+.chat-split.narrow .voice-rail {
+    width: auto;
+    margin-left: 0;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+}
+
+/* The wrapper is what flexes, so hiding only the list inside it would leave the rail holding an
+   empty 200px of nothing. */
+.chat-split.narrow .voice-list-wrap {
+    display: none;
+}
+
+.chat-split.narrow .voice-dock {
+    margin-top: 0;
+    padding-top: 0;
+    border-top-width: 0;
 }
 
 /* ---------- Emoji picker ---------- */

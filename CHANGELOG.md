@@ -3,9 +3,46 @@
 All notable changes to the Clan System project. Dates reflect when work happened in-session, not
 calendar releases.
 
-## [Unreleased]
+## [1.0.0] - 2026-08-22
+
+First tagged release. Installable as a UPM package:
+`https://github.com/ahmedafifiabodu/Clan-System.git?path=Assets/ClanSystem`
 
 ### Changed
+- **Per-player state moved from Private Game Data to Protected Player Data.** `social`, `invites`,
+  `rate` and `moderation` were stored as a `player-<id>` custom item, which is one access class too
+  strict and, more importantly, the wrong scope: a custom item belongs to the game, so it is never
+  removed when the player is deleted, and Cloud Save has no list-all API to find the orphans later.
+  Protected Player Data is exactly this data's contract - the player may read their own record,
+  only a server may write it - and UGS deletes it along with the player.
+- **The clan directory is a Cloud Save query index, not a shard set.** The 16 `index-c*` items are
+  gone; browse and search query the `clan-<id>` items directly. This also removes `updateIndex` and
+  the drift risk that came with keeping a second copy of every clan summary in step with its
+  profile. See the correction below - the reasoning that produced the shards was wrong.
+  The tag shards (`index-t*`) stay: two clans racing for the same tag must be serialised, and the
+  write lock on the shard item is what does that. A query is a read, and a read cannot reserve.
+- **Clan search matches a name prefix, not a substring.** Cloud Save queries compare (`EQ`, `LT`,
+  `GE`, ...) - they do not search - so `dirNameUpper GE "WOL"` bounded above is the strongest name
+  filter an index can serve. `OLF` no longer finds `WOLFPACK`. Exact tag match works on any tag and
+  is ranked above name hits. The old fan-out could substring-match only because it had already
+  loaded every clan into memory, which is the part that did not scale.
+- **Search reports `hasMore` instead of a true result count.** A query does not report how many
+  rows it could have returned, so `total` is now what the caller has actually been shown.
+- **Chat page rebuilt around a voice rail.** It was four stacked bands - voice bar, participant
+  list, tabs, messages - so ~40% of the page was chrome before the first line of text. The
+  conversation now takes the full height with voice in a 268px rail beside it, collapsing to a
+  strip above the messages below 640px.
+- **Microphone and speaker are icon buttons with real state.** State is carried by colour *and* a
+  slash overlay, so it survives colour-blindness and a greyscale screenshot. Microphone strength is
+  driven by `VivoxParticipant.AudioEnergy` through the new `ICommunicationService.MicrophoneEnergy`
+  - measured level, not an animation.
+- **Sign-in no longer waits on services the window does not need.** `StartAsync` awaits only
+  authentication and the first snapshot; friends and voice start concurrently once the window
+  exists. Measured 15218ms before (services 31ms, auth 2179ms, friends 3416ms, snapshot 876ms,
+  voice 8713ms) against 3418ms and 5431ms across two runs after, with voice arriving at 5358ms and
+  12896ms in the background.
+
+### Superseded from the previous entry
 - **Clan directory sharded across 16 Cloud Save items.** It was a single `index`/`clans` item
   holding every clan, which caps out on item size and made every create/disband contend on one
   write lock. A clan now hashes to `index-c{0..15}` and tags to `index-t{0..15}`; search and the
@@ -19,6 +56,11 @@ calendar releases.
   dashboard-configured query": Cloud Save query indexes only cover *player* data, and clan records
   live in *private custom* data precisely so player tokens cannot reach them. Using them would
   have meant giving up the security model.
+  **This reasoning was wrong and is corrected in 1.0.0.** Cloud Save queries cover Game Data as
+  well as Player Data, and from Cloud Code they cover any access class including Private. The
+  security model never had to be given up; the shards existed only because of a claim nobody
+  checked against the documentation. The sharded directory described above was replaced by a real
+  query index.
 - Disband leaderboard deletion now tries two authorised server-side identities before degrading:
   `context.serviceToken` (Bearer), then the service account key pair sent as **Basic** auth
   (`UGS_SA_KEY_ID` / `UGS_SA_SECRET_KEY` from Secret Manager). Only if both are unauthorised does it
@@ -34,6 +76,18 @@ calendar releases.
   shows when a key is created.
 
 ### Fixed
+- `deletePrivateCustomItem` was called as `(key, projectId, customId)`; the cloud-save-1.4 signature
+  is `(projectId, customId, key)`. It sits inside a `try/catch`, so disband had been silently
+  leaving every `clan-*` item behind.
+- `.header` and `.tabbar` defaulted to `flex-shrink: 1`, so a tall page squeezed them vertically -
+  the header rendered 47px tall while its content needed 72px, clipping the player name and pushing
+  the meta line into the tab bar. Both are now fixed chrome; `.content` is the row that yields.
+- `.header-identity` gained `min-width: 0` so it can shrink below its content at all, with ellipsis
+  on both labels instead of painting over the rename field.
+- Sign-in showed a frozen screen for its whole duration. It now shows a spinner and names the stage
+  it is waiting on, because the slow stage is not always the same one.
+- The clan search Play Mode test retries for 3s: a query index updates a moment after the write
+  that feeds it, so asserting on the first attempt was a race the test would lose at random.
 - **Chat page elements overlapped each other.** The `GLOBAL` / `CLAN` tabs painted on top of the
   voice participants label, and the tabs bled into one another. Nothing was mispositioned: every
   row in the chat column had the default `flex-shrink: 1`, so `.voice-people` was squeezed to 90px
@@ -151,6 +205,17 @@ calendar releases.
   didn't break anything).
 
 ### Known issues (open)
+- Cloud Code deployment can report `Failed to Deploy` with a "was found duplicated with other
+  files" message. This is a bug in `com.unity.services.cloudcode` 2.10.4: `Script.Name` is null
+  after a domain reload, and `PreDeployValidator` groups the batch by name, so two null names look
+  like the same script. Reimport the `CloudCode` folder before deploying, or deploy one script at
+  a time.
+- No migration tooling, deliberately. Cloud Save has no list-all API for custom items, so nothing
+  inside the backend can enumerate every clan or player - a migration would have to walk the index
+  it is replacing and would still miss anyone not on a clan roster. Wiping the environment is the
+  supported path for a layout change.
+- Three Cloud Save indexes must exist before the first clan is written; only data written after an
+  index exists is queryable. Config in `docs/cloud-save-indexes.json`.
 - `SyncClanChannelAsync` leaves the previous clan channel without clearing `ActiveVoiceChannel`, so
   `IsVoiceJoined(Clan)` reports true for the *new* channel before anything transmits into it.
   Cosmetic in the voice bar; not covered by the current tests.

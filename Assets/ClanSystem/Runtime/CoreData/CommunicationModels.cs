@@ -50,6 +50,13 @@ namespace ClanSystem.CoreData
         public bool IsMuted { get; set; }
         public bool IsInAudio { get; set; }
         public int LocalVolume { get; set; }
+
+        /// <summary>
+        /// Live audio level, 0 to 1, as reported by the transport. This is measured energy, not a
+        /// speaking flag: <see cref="IsSpeaking"/> is the transport's own threshold on the same
+        /// signal, so a level meter should read this while a talking indicator reads that.
+        /// </summary>
+        public float AudioEnergy { get; set; }
     }
 
     /// <summary>

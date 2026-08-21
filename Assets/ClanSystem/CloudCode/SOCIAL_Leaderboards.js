@@ -19,13 +19,6 @@ const fail = (code, message) => ({ ok: false, code: code, message: message, data
 
 const clanId_ = (id) => `clan-${id}`;
 
-// Must match SOCIAL_ClanCommand.js. The clan board resolves each leaderboard entry against the
-// clan directory, so it has to read the same shards the directory is written to.
-const SHARD_COUNT = 16;
-
-const clanShardId_ = (shard) => `index-c${shard}`;
-const playerId_ = (id) => `player-${id}`;
-
 async function readPrivate(api, projectId, customId, key) {
   const res = await api.getPrivateCustomItems(projectId, customId, [key]);
   const results = (res && res.data && res.data.results) || [];
@@ -57,24 +50,93 @@ async function mutate(api, projectId, customId, key, mutator) {
   throw lastError || new Error("write conflict");
 }
 
-/// Reads every directory shard and merges them into one clanId -> summary map. Shards are fetched
-/// concurrently, so the fan-out costs one round trip, not SHARD_COUNT.
-async function readClanDirectory(api, projectId) {
-  const sources = [];
-  for (let shard = 0; shard < SHARD_COUNT; shard++) {
-    sources.push(readPrivate(api, projectId, clanShardId_(shard), "clans"));
-  }
+// Per-player state is protected player data: the player reads it, only the server writes it.
+async function readPlayer(api, projectId, playerId, key) {
+  const res = await api.getProtectedItems(projectId, playerId, [key]);
+  const results = (res && res.data && res.data.results) || [];
+  if (results.length === 0) return { value: null, writeLock: null };
+  return { value: results[0].value, writeLock: results[0].writeLock };
+}
 
-  const items = await Promise.all(sources);
-  const merged = {};
-  for (let i = 0; i < items.length; i++) {
-    const map = (items[i].value && items[i].value.map) || {};
-    for (const clanId of Object.keys(map)) {
-      merged[clanId] = map[clanId];
+async function writePlayer(api, projectId, playerId, key, value, writeLock) {
+  const body = { key: key, value: value };
+  if (writeLock) body.writeLock = writeLock;
+  await api.setProtectedItem(projectId, playerId, body);
+}
+
+async function mutatePlayer(api, projectId, playerId, key, mutator) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const current = await readPlayer(api, projectId, playerId, key);
+    const next = await mutator(current.value);
+    if (next && next.__abort) return next;
+    try {
+      await writePlayer(api, projectId, playerId, key, next, current.writeLock);
+      return next;
+    } catch (err) {
+      const status = err && err.response && err.response.status;
+      if (status !== 409) throw err;
+      lastError = err;
     }
   }
+  throw lastError || new Error("write conflict");
+}
 
-  return merged;
+/// Loads the directory summaries for one page of leaderboard entries.
+///
+/// The board is paged, so this reads only the clans on the page - a handful of items fetched in
+/// one round trip. It reads them by id rather than through the directory query, because a
+/// leaderboard page already names exactly which clans it needs and a query cannot filter by a
+/// list of ids.
+///
+/// A missing summary means the clan disbanded and its leaderboard entry outlived it; the caller
+/// drops those rows.
+async function readSummaries(api, projectId, clanIds) {
+  const unique = [];
+  const seen = {};
+  for (let i = 0; i < clanIds.length; i++) {
+    if (!clanIds[i] || seen[clanIds[i]]) continue;
+    seen[clanIds[i]] = true;
+    unique.push(clanIds[i]);
+  }
+
+  const items = await Promise.all(unique.map((id) => readPrivate(api, projectId, clanId_(id), "summary")));
+  const map = {};
+  for (let i = 0; i < unique.length; i++) {
+    if (items[i].value) map[unique[i]] = items[i].value;
+  }
+  return map;
+}
+
+/// Must match SOCIAL_ClanCommand.js. The clan directory is an index over the clan items, and a
+/// score submission moves a clan within it, so the same facets have to be republished here or the
+/// browse list would keep ordering clans by the score they had before anyone played.
+function summarize(profile) {
+  return {
+    clanId: profile.clanId,
+    name: profile.name,
+    tag: profile.tag,
+    memberCount: profile.memberCount,
+    maxMembers: profile.maxMembers,
+    score: profile.score,
+    level: profile.level,
+    emblemId: profile.emblemId,
+    isPublic: profile.isPublic,
+    nameUpper: profile.name.toUpperCase(),
+  };
+}
+
+async function publishDirectoryEntry(api, projectId, profile) {
+  const summary = summarize(profile);
+  await api.setPrivateCustomItemBatch(projectId, clanId_(profile.clanId), {
+    data: [
+      { key: "summary", value: summary, writeLock: null },
+      { key: "dirPublic", value: profile.isPublic === false ? 0 : 1, writeLock: null },
+      { key: "dirScore", value: Math.max(0, profile.score || 0), writeLock: null },
+      { key: "dirTag", value: profile.tag, writeLock: null },
+      { key: "dirNameUpper", value: summary.nameUpper, writeLock: null },
+    ],
+  });
 }
 
 function levelFor(xp) {
@@ -120,13 +182,13 @@ module.exports = async ({ params, context, logger }) => {
       if (!isFinite(requested) || requested <= 0) return fail("INVALID_SCORE", "Score delta must be positive.");
       const delta = Math.min(CONFIG.maxScoreDelta, Math.floor(requested));
 
-      const rateItem = await readPrivate(api, projectId, playerId_(callerId), "rate");
+      const rateItem = await readPlayer(api, projectId, callerId, "rate");
       const rate = rateItem.value || {};
       if (rate.lastScoreAt && now - rate.lastScoreAt < CONFIG.minSubmitIntervalMs) {
         return fail("RATE_LIMITED", "Score submitted too frequently.");
       }
 
-      const social = await mutate(api, projectId, playerId_(callerId), "social", (current) => {
+      const social = await mutatePlayer(api, projectId, callerId, "social", (current) => {
         const value = current || { playerId: callerId, clanId: null, role: null, score: 0, contribution: 0 };
         value.score = (value.score || 0) + delta;
         value.contribution = (value.contribution || 0) + delta;
@@ -135,7 +197,7 @@ module.exports = async ({ params, context, logger }) => {
       });
 
       rate.lastScoreAt = now;
-      await writePrivate(api, projectId, playerId_(callerId), "rate", rate, rateItem.writeLock);
+      await writePlayer(api, projectId, callerId, "rate", rate, rateItem.writeLock);
 
       let playerEntry = null;
       try {
@@ -173,6 +235,8 @@ module.exports = async ({ params, context, logger }) => {
         });
 
         if (clanProfile && !clanProfile.__abort) {
+          await publishDirectoryEntry(api, projectId, clanProfile);
+
           try {
             await leaderboards.addLeaderboardPlayerScore(projectId, CONFIG.clanLeaderboardId, clanProfile.clanId, {
               score: clanProfile.score,
@@ -208,7 +272,7 @@ module.exports = async ({ params, context, logger }) => {
         // The leaderboard stores ids and scores; clan affiliation lives in our own records,
         // so it is joined here rather than trusted from a client-supplied payload.
         for (let i = 0; i < rows.length; i++) {
-          const item = await readPrivate(api, projectId, playerId_(rows[i].id), "social");
+          const item = await readPlayer(api, projectId, rows[i].id, "social");
           const value = item.value || {};
           if (!rows[i].name) rows[i].name = value.name || null;
           rows[i].clanTag = value.clanId ? await clanTagOf(value.clanId) : null;
@@ -233,15 +297,33 @@ module.exports = async ({ params, context, logger }) => {
     case "clans": {
       const limit = Math.min(CONFIG.pageLimitMax, Math.max(1, payload.limit || 25));
       const offset = Math.max(0, payload.offset || 0);
-      const socialItem = await readPrivate(api, projectId, playerId_(callerId), "social");
+      const socialItem = await readPlayer(api, projectId, callerId, "social");
       const myClanId = (socialItem.value && socialItem.value.clanId) || null;
-      const index = await readClanDirectory(api, projectId);
 
       try {
         const res = await leaderboards.getLeaderboardScores(projectId, CONFIG.clanLeaderboardId, offset, limit);
         const body = (res && res.data) || {};
-        const rows = [];
         const entries = mapEntries(body.results);
+
+        let self = null;
+        let selfEntry = null;
+        if (myClanId) {
+          try {
+            const mine = await leaderboards.getLeaderboardPlayerScore(projectId, CONFIG.clanLeaderboardId, myClanId);
+            selfEntry = mine && mine.data ? mine.data : null;
+          } catch (err) {
+            selfEntry = null;
+          }
+        }
+
+        // One read per clan on this page, plus the caller's own clan if it is not on it. The page
+        // is small and bounded by `limit`, so this stays a single round trip.
+        const wanted = [];
+        for (let i = 0; i < entries.length; i++) wanted.push(entries[i].id);
+        if (selfEntry) wanted.push(myClanId);
+        const index = await readSummaries(api, projectId, wanted);
+
+        const rows = [];
         for (let i = 0; i < entries.length; i++) {
           const summary = index[entries[i].id];
           if (!summary) continue; // Disbanded clans keep a stale leaderboard entry; drop them.
@@ -258,28 +340,21 @@ module.exports = async ({ params, context, logger }) => {
           });
         }
 
-        let self = null;
-        if (myClanId) {
-          try {
-            const mine = await leaderboards.getLeaderboardPlayerScore(projectId, CONFIG.clanLeaderboardId, myClanId);
-            const summary = index[myClanId];
-            if (mine && mine.data && summary) {
-              self = {
-                rank: mine.data.rank + 1,
-                id: myClanId,
-                name: summary.name,
-                tag: summary.tag,
-                score: mine.data.score,
-                memberCount: summary.memberCount,
-                maxMembers: summary.maxMembers,
-                level: summary.level,
-                isSelf: true,
-              };
-            }
-          } catch (err) {
-            self = null;
-          }
+        if (selfEntry && index[myClanId]) {
+          const summary = index[myClanId];
+          self = {
+            rank: selfEntry.rank + 1,
+            id: myClanId,
+            name: summary.name,
+            tag: summary.tag,
+            score: selfEntry.score,
+            memberCount: summary.memberCount,
+            maxMembers: summary.maxMembers,
+            level: summary.level,
+            isSelf: true,
+          };
         }
+
         return ok({ rows: rows, total: body.total || 0, offset: offset, limit: limit, self: self, myClanId: myClanId });
       } catch (err) {
         return fail("LEADERBOARD_UNAVAILABLE", "The clan leaderboard is not configured yet.");
@@ -293,4 +368,4 @@ module.exports = async ({ params, context, logger }) => {
 
 module.exports.params = { action: "String", payload: "JSON" };
 
-// schema-rev 2
+// schema-rev 3

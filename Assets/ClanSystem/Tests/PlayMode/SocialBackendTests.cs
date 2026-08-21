@@ -21,6 +21,11 @@ namespace ClanSystem.Tests
     {
         private const string _configPath = "ClanSystemConfig";
 
+        /// <summary>How long a search retries before a newly created clan is considered missing.</summary>
+        private const int _searchIndexAttempts = 6;
+
+        private const int _searchIndexRetryMs = 500;
+
         private ClanSystemConfig _config;
         private SocialCoordinator _coordinator;
 
@@ -210,13 +215,29 @@ namespace ClanSystem.Tests
                 SocialResult create = await _coordinator.CreateClanAsync("Test " + tag, tag, "Search test.", true, 0);
                 Assert.IsTrue(create.IsSuccess, "Create failed: " + create.Message);
 
-                SocialResult<ClanSearchPage> search = await _coordinator.SearchClansAsync(tag, 0);
-                Assert.IsTrue(search.IsSuccess, "Search failed: " + search.Message);
-
+                // The clan directory is a Cloud Save query index, and an index is updated a moment
+                // after the write that feeds it. Searching the instant a clan is created is a race
+                // the test would lose at random, so it retries for a bounded window instead of
+                // asserting on the first attempt.
                 bool found = false;
-                List<ClanSummary> clans = search.Value != null ? search.Value.Clans : null;
-                if (clans != null)
+                string lastMessage = null;
+                for (int attempt = 0; attempt < _searchIndexAttempts && !found; attempt++)
                 {
+                    if (attempt > 0)
+                    {
+                        await Task.Delay(_searchIndexRetryMs);
+                    }
+
+                    SocialResult<ClanSearchPage> search = await _coordinator.SearchClansAsync(tag, 0);
+                    lastMessage = search.Message;
+                    Assert.IsTrue(search.IsSuccess, "Search failed: " + search.Message);
+
+                    List<ClanSummary> clans = search.Value != null ? search.Value.Clans : null;
+                    if (clans == null)
+                    {
+                        continue;
+                    }
+
                     for (int i = 0; i < clans.Count; i++)
                     {
                         if (clans[i].Tag == tag)
@@ -226,7 +247,7 @@ namespace ClanSystem.Tests
                     }
                 }
 
-                Assert.IsTrue(found, "Newly created clan did not appear in search results.");
+                Assert.IsTrue(found, "Newly created clan did not appear in search results. " + lastMessage);
 
                 await CleanUpClanAsync();
             });

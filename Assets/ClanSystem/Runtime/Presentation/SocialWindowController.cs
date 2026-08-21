@@ -16,6 +16,12 @@ namespace ClanSystem.Presentation
         private const string _selectedClass = "selected";
         private const string _visibleClass = "visible";
 
+        /// <summary>
+        /// Chat page width below which the voice rail stops being a rail. 268px of rail plus the
+        /// 220px minimum the conversation needs leaves no room to split under this.
+        /// </summary>
+        private const float _chatNarrowBreakpoint = 640f;
+
         private readonly VisualElement _root;
         private readonly SocialCoordinator _coordinator;
         private readonly PlayerProfilePopup _popup;
@@ -91,6 +97,16 @@ namespace ClanSystem.Presentation
             root.Q<Button>("refresh-button").clicked += OnButtonClick_Refresh;
             root.Q<Button>("score-button").clicked += OnButtonClick_PlayMatch;
             root.Q<Button>("rename-button").clicked += OnButtonClick_Rename;
+
+            // USS has no media queries, so the chat page's own width decides its layout. Below the
+            // breakpoint the voice rail cannot hold its 268px and the conversation beside it at a
+            // usable width, so the rail becomes a strip above the messages instead.
+            VisualElement chatSplit = root.Q<VisualElement>("chat-split");
+            if (chatSplit != null)
+            {
+                chatSplit.RegisterCallback<GeometryChangedEvent>(evt =>
+                    chatSplit.EnableInClassList("narrow", evt.newRect.width < _chatNarrowBreakpoint));
+            }
 
             _coordinator.StatusReported += StatusReportedCallback;
             _coordinator.State.ClanChanged += ClanChangedCallback;

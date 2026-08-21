@@ -19,6 +19,13 @@ namespace ClanSystem.Services
         bool IsMicrophoneMuted { get; }
         bool IsSpeakerMuted { get; }
 
+        /// <summary>
+        /// The local player's own live microphone level, 0 to 1, measured by the transport. Reads 0
+        /// when muted or not in a voice channel, so a level meter bound to it goes flat on mute
+        /// without the view needing to special-case either state.
+        /// </summary>
+        float MicrophoneEnergy { get; }
+
         /// <summary>Channel the microphone currently transmits into, if any.</summary>
         CommChannelKind? ActiveVoiceChannel { get; }
 

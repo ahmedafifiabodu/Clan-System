@@ -1,0 +1,36 @@
+{
+  "name": "com.ahmedafifi.clan-system",
+  "version": "1.0.0",
+  "displayName": "Clan System",
+  "description": "Server-authoritative clans, chat and voice on Unity Gaming Services. Clan records, rosters, invites and moderation live in Cloud Save behind Cloud Code, so a client cannot read another clan's roster or write its own membership. Text and voice share one Vivox transport. Ships the Cloud Code scripts the backend needs, a UI Toolkit social window, and a Play Mode suite that runs against the live backend.",
+  "unity": "6000.3",
+  "documentationUrl": "https://github.com/ahmedafifiabodu/Clan-System#readme",
+  "changelogUrl": "https://github.com/ahmedafifiabodu/Clan-System/blob/main/CHANGELOG.md",
+  "licensesUrl": "https://github.com/ahmedafifiabodu/Clan-System/blob/main/LICENSE",
+  "license": "MIT",
+  "author": {
+    "name": "Ahmed Afifi",
+    "url": "https://github.com/ahmedafifiabodu"
+  },
+  "keywords": [
+    "clan",
+    "guild",
+    "social",
+    "chat",
+    "voice",
+    "vivox",
+    "cloud-code",
+    "cloud-save",
+    "ugs",
+    "multiplayer"
+  ],
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.2",
+    "com.unity.services.core": "1.18.0",
+    "com.unity.services.authentication": "3.7.4",
+    "com.unity.services.cloudcode": "2.10.4",
+    "com.unity.services.friends": "1.2.0",
+    "com.unity.services.vivox": "16.11.0",
+    "com.unity.services.deployment": "1.7.2"
+  }
+}
