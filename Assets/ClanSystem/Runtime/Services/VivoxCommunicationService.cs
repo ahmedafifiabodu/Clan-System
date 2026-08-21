@@ -64,6 +64,27 @@ namespace ClanSystem.Services
         public bool IsSpeakerMuted { get; private set; }
         public CommChannelKind? ActiveVoiceChannel { get; private set; }
 
+        /// <summary>
+        /// The local player's own audio energy in the channel they are transmitting into.
+        ///
+        /// Vivox measures this on the participant, not on the input device, so there is no reading
+        /// at all until the player is in a channel - and a muted input stops feeding it. Both cases
+        /// return 0, which is what a level meter should show anyway.
+        /// </summary>
+        public float MicrophoneEnergy
+        {
+            get
+            {
+                if (IsMicrophoneMuted || !ActiveVoiceChannel.HasValue)
+                {
+                    return 0f;
+                }
+
+                VivoxParticipant self = FindSelfParticipant(ActiveVoiceChannel.Value);
+                return self != null ? Mathf.Clamp01((float)self.AudioEnergy) : 0f;
+            }
+        }
+
         public event Action StateChanged;
         public event Action<CommMessage> MessageReceived;
         public event Action<CommChannelKind> ParticipantsChanged;
@@ -520,6 +541,7 @@ namespace ClanSystem.Services
                     IsMuted = participant.IsMuted,
                     IsInAudio = participant.IsInAudio,
                     LocalVolume = participant.LocalVolume,
+                    AudioEnergy = Mathf.Clamp01((float)participant.AudioEnergy),
                 });
             }
 
@@ -785,6 +807,37 @@ namespace ClanSystem.Services
                 Channel = channel,
                 IsFromSelf = message.FromSelf,
             };
+        }
+
+        /// <summary>
+        /// The local player's own participant record in one channel. Scoped to a single channel
+        /// rather than searching every active one, because the player transmits into exactly one
+        /// and the others would report a stale level.
+        /// </summary>
+        private VivoxParticipant FindSelfParticipant(CommChannelKind channel)
+        {
+            string name = ResolveChannelName(channel);
+            if (string.IsNullOrEmpty(name) || VivoxService.Instance == null)
+            {
+                return null;
+            }
+
+            ReadOnlyDictionary<string, ReadOnlyCollection<VivoxParticipant>> channels = VivoxService.Instance.ActiveChannels;
+            ReadOnlyCollection<VivoxParticipant> participants;
+            if (channels == null || !channels.TryGetValue(name, out participants))
+            {
+                return null;
+            }
+
+            for (int i = 0; i < participants.Count; i++)
+            {
+                if (participants[i].IsSelf)
+                {
+                    return participants[i];
+                }
+            }
+
+            return null;
         }
 
         private VivoxParticipant FindParticipant(string playerId)

@@ -20,6 +20,8 @@ namespace ClanSystem.Services
         private readonly ISocialBackend _backend;
         private readonly ICommunicationService _communication;
         private readonly SocialState _state;
+
+        private bool _isBackgroundStarted;
         private readonly List<string> _friendIdBuffer = new List<string>();
 
         private CancellationTokenSource _lifetimeSource;
@@ -60,6 +62,13 @@ namespace ClanSystem.Services
         public event Action<string, bool> StatusReported;
         public event Action SignedIn;
 
+        /// <summary>
+        /// Raised as <see cref="StartAsync"/> moves between stages, so the sign-in screen can name
+        /// what it is waiting on. Sign-in is a chain of independent services and the slow one is
+        /// not always the same, which a single "Signing in..." message cannot express.
+        /// </summary>
+        public event Action<string> StartupStageChanged;
+
         public CancellationToken Lifetime => _lifetimeSource.Token;
 
         /// <summary>
@@ -68,14 +77,37 @@ namespace ClanSystem.Services
         /// </summary>
         public async Task<SocialResult> StartAsync(string profileName)
         {
+            // Only what the window cannot render without: an authenticated player, and the first
+            // snapshot. Friends and voice are deliberately not awaited here - see
+            // StartBackgroundServices. Measured, those two were 12.1s of a 15.2s sign-in while the
+            // window sat on a spinner that could already have been showing the player their clan.
+            System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
+            System.Diagnostics.Stopwatch stage = System.Diagnostics.Stopwatch.StartNew();
+            System.Text.StringBuilder timings = new System.Text.StringBuilder();
+
+            void BeginStage(string label)
+            {
+                stage.Restart();
+                StartupStageChanged?.Invoke(label);
+            }
+
+            void EndStage(string label)
+            {
+                timings.Append(label).Append(' ').Append(stage.ElapsedMilliseconds).Append("ms; ");
+            }
+
+            BeginStage("Starting Unity Gaming Services...");
             SocialResult initialize = await _auth.InitializeAsync(profileName, Lifetime);
+            EndStage("services");
             if (!initialize.IsSuccess)
             {
                 Report(initialize.Message, true);
                 return initialize;
             }
 
+            BeginStage("Signing in...");
             SocialResult signIn = await _auth.SignInAsync(Lifetime);
+            EndStage("auth");
             if (!signIn.IsSuccess)
             {
                 Report(signIn.Message, true);
@@ -84,39 +116,97 @@ namespace ClanSystem.Services
 
             SignedIn?.Invoke();
 
-            // Friends is optional for the clan flow, so a failure here degrades the UI instead of
-            // blocking sign-in.
-            SocialResult friendsResult = await _friends.InitializeAsync(Lifetime);
-            if (friendsResult.IsSuccess)
+            BeginStage("Loading your clan...");
+            SocialResult refresh = await RefreshSnapshotAsync();
+            EndStage("snapshot");
+
+            StartLoops();
+
+            Debug.Log($"[ClanSystem] Sign-in took {total.ElapsedMilliseconds}ms - {timings}");
+            StartupStageChanged?.Invoke(string.Empty);
+            return refresh;
+        }
+
+        /// <summary>
+        /// Brings up the services the window can render without: the friends list and the
+        /// voice/text transport. Call once, after the window exists - failures here surface as
+        /// status messages, which are lost if nothing is listening yet.
+        ///
+        /// Neither is awaited by <see cref="StartAsync"/> because neither gates the first frame.
+        /// The friends tab already renders an empty list until <see cref="IFriendsGateway.IsReady"/>
+        /// turns true, and the voice rail already shows a connecting state and disables its own
+        /// controls until the transport reports Connected. Both then repaint from their own events.
+        ///
+        /// The two run concurrently rather than in sequence: they share no state, and running them
+        /// one after the other would add the slower one's latency to the faster one for no reason.
+        /// </summary>
+        public void StartBackgroundServices()
+        {
+            if (_isBackgroundStarted)
             {
+                return;
+            }
+
+            _isBackgroundStarted = true;
+            _ = StartFriendsAsync();
+            _ = StartCommunicationAsync();
+        }
+
+        private async Task StartFriendsAsync()
+        {
+            System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                // Friends is optional for the clan flow, so a failure degrades the UI rather than
+                // blocking anything.
+                SocialResult friendsResult = await _friends.InitializeAsync(Lifetime);
+                if (!friendsResult.IsSuccess)
+                {
+                    Report(friendsResult.Message, true);
+                    return;
+                }
+
                 _friends.RelationshipsChanged += RelationshipsChangedCallback;
                 _friends.ClanInviteMessageReceived += ClanInviteMessageReceivedCallback;
                 await _friends.SetOnlineAsync("In the social demo", Lifetime);
+                await RefreshFriendsAsync();
+
+                Debug.Log($"[ClanSystem] Friends ready after {stopwatch.ElapsedMilliseconds}ms.");
             }
-            else
+            catch (OperationCanceledException)
             {
-                Report(friendsResult.Message, true);
+                // Signed out or the scene went away while connecting.
+            }
+        }
+
+        private async Task StartCommunicationAsync()
+        {
+            if (_communication == null)
+            {
+                return;
             }
 
-            SocialResult refresh = await RefreshSnapshotAsync();
-
-            // Voice/text transport comes up after the snapshot so the clan channel is known.
-            if (_communication != null)
+            System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            try
             {
                 SocialResult voice = await _communication.LoginAsync(_auth.PlayerId, _auth.PlayerName, Lifetime);
-                if (voice.IsSuccess)
-                {
-                    string clanId = _state.Clan != null ? _state.Clan.ClanId : null;
-                    await _communication.SyncClanChannelAsync(clanId, Lifetime);
-                }
-                else
+                if (!voice.IsSuccess)
                 {
                     Report(voice.Message, true);
+                    return;
                 }
-            }
 
-            StartLoops();
-            return refresh;
+                // Read the clan id after the login completes, not before: the snapshot may have been
+                // refreshed by the notification loop while the transport was still connecting.
+                string clanId = _state.Clan != null ? _state.Clan.ClanId : null;
+                await _communication.SyncClanChannelAsync(clanId, Lifetime);
+
+                Debug.Log($"[ClanSystem] Voice and chat ready after {stopwatch.ElapsedMilliseconds}ms.");
+            }
+            catch (OperationCanceledException)
+            {
+                // Signed out or the scene went away while connecting.
+            }
         }
 
         public async Task<SocialResult> RefreshSnapshotAsync()

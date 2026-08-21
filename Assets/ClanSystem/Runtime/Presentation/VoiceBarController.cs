@@ -1,18 +1,36 @@
 using System.Collections.Generic;
 using ClanSystem.CoreData;
 using ClanSystem.Services;
+using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace ClanSystem.Presentation
 {
     /// <summary>
-    /// Voice controls: connection state, which channel the microphone transmits into, mic and
-    /// speaker toggles, and the live participant list with speaking indicators and per-player mute.
-    /// Speaking state is polled on a light schedule because audio energy changes far faster than the
-    /// UI needs to repaint.
+    /// The voice rail beside the conversation: connection state, which channel the microphone
+    /// transmits into, the live participant list, and the mic/speaker dock.
+    ///
+    /// Two repaint rates, because the two things being shown change at different speeds. The roster
+    /// and its speaking dots are polled on the configured indicator interval; the microphone level
+    /// is polled far faster, because a meter that lags behind the player's own voice reads as
+    /// broken rather than as smooth.
     /// </summary>
     public class VoiceBarController
     {
+        /// <summary>Level meter tick. Fast enough to track speech, cheap enough to ignore.</summary>
+        private const int _meterIntervalMs = 50;
+
+        /// <summary>
+        /// Meter smoothing per tick, 0 to 1. Raw audio energy is spiky enough to strobe; rising
+        /// quickly and falling slowly is what makes a level meter legible.
+        /// </summary>
+        private const float _meterAttack = 0.6f;
+
+        private const float _meterRelease = 0.18f;
+
+        /// <summary>Width of the meter track in pixels. Must match .mic-meter in the stylesheet.</summary>
+        private const float _meterWidth = 34f;
+
         private readonly SocialCoordinator _coordinator;
         private readonly SocialWindowController _window;
         private readonly ICommunicationService _comm;
@@ -23,10 +41,14 @@ namespace ClanSystem.Presentation
         private readonly Button _leaveVoice;
         private readonly Button _micToggle;
         private readonly Button _speakerToggle;
+        private readonly VisualElement _micMeterFill;
         private readonly ScrollView _participants;
         private readonly Label _participantsEmpty;
 
         private IVisualElementScheduledItem _pollHandle;
+        private IVisualElementScheduledItem _meterHandle;
+        private float _meterLevel;
+        private bool _isMicLive;
 
         public VoiceBarController(VisualElement root, SocialCoordinator coordinator, SocialWindowController window)
         {
@@ -40,6 +62,7 @@ namespace ClanSystem.Presentation
             _leaveVoice = root.Q<Button>("voice-leave");
             _micToggle = root.Q<Button>("voice-mic");
             _speakerToggle = root.Q<Button>("voice-speaker");
+            _micMeterFill = root.Q<VisualElement>("mic-meter-fill");
             _participants = root.Q<ScrollView>("voice-participants");
             _participantsEmpty = root.Q<Label>("voice-participants-empty");
 
@@ -58,8 +81,9 @@ namespace ClanSystem.Presentation
             _coordinator.State.ClanChanged += ClanChangedCallback;
 
             // Speaking indicators need a steady repaint while voice is active.
-            float interval = UnityEngine.Mathf.Max(0.1f, coordinator.Config.VoiceIndicatorRefreshSeconds);
+            float interval = Mathf.Max(0.1f, coordinator.Config.VoiceIndicatorRefreshSeconds);
             _pollHandle = root.schedule.Execute(RefreshParticipants).Every((long)(interval * 1000f));
+            _meterHandle = root.schedule.Execute(RefreshMicrophoneLevel).Every(_meterIntervalMs);
 
             Refresh();
         }
@@ -67,6 +91,7 @@ namespace ClanSystem.Presentation
         public void Dispose()
         {
             _pollHandle?.Pause();
+            _meterHandle?.Pause();
 
             if (_comm != null)
             {
@@ -153,59 +178,117 @@ namespace ClanSystem.Presentation
             bool isReady = _comm != null && _comm.State == CommConnectionState.Connected;
             bool isInClan = _coordinator.State.IsInClan;
             bool isInVoice = _comm != null && _comm.ActiveVoiceChannel.HasValue;
+            bool isError = _comm != null
+                && (_comm.State == CommConnectionState.Failed || _comm.State == CommConnectionState.NotConfigured);
 
+            // The rail is narrow, so the pill carries a short state word and the full detail moves
+            // into the tooltip rather than wrapping onto a second line.
             if (_comm == null)
             {
-                _status.text = "VOICE OFFLINE";
+                _status.text = "OFFLINE";
             }
             else if (_comm.State == CommConnectionState.NotConfigured)
             {
-                _status.text = "VOICE NOT CONFIGURED";
+                _status.text = "NOT SET UP";
             }
             else if (_comm.State == CommConnectionState.Recovering)
             {
-                _status.text = "VOICE RECONNECTING";
+                _status.text = "RECONNECTING";
             }
             else if (_comm.State == CommConnectionState.Failed)
             {
-                _status.text = "VOICE DISCONNECTED";
+                _status.text = "DISCONNECTED";
             }
             else if (isInVoice)
             {
-                _status.text = _comm.ActiveVoiceChannel.Value == CommChannelKind.Clan
-                    ? "IN CLAN VOICE"
-                    : "IN GLOBAL VOICE";
+                _status.text = "LIVE";
             }
             else if (isReady)
             {
-                _status.text = "VOICE READY";
+                _status.text = "READY";
             }
             else
             {
-                _status.text = "VOICE CONNECTING";
+                _status.text = "CONNECTING";
             }
 
             _status.tooltip = _comm != null ? _comm.StateDetail : string.Empty;
             _status.EnableInClassList("online", isInVoice);
-            _status.EnableInClassList("error", _comm != null && (_comm.State == CommConnectionState.Failed || _comm.State == CommConnectionState.NotConfigured));
+            _status.EnableInClassList("error", isError);
 
             _joinGlobal.SetEnabled(isReady);
             _joinClan.SetEnabled(isReady && isInClan);
+            _joinClan.tooltip = isInClan ? "Talk to your clan" : "Join a clan to use clan voice";
             _leaveVoice.SetEnabled(isInVoice);
             _micToggle.SetEnabled(isReady);
             _speakerToggle.SetEnabled(isReady);
 
-            bool isMicMuted = _comm != null && _comm.IsMicrophoneMuted;
-            bool isSpeakerMuted = _comm != null && _comm.IsSpeakerMuted;
-            _micToggle.text = isMicMuted ? "Mic off" : "Mic on";
-            _speakerToggle.text = isSpeakerMuted ? "Sound off" : "Sound on";
-            _micToggle.EnableInClassList("danger", isMicMuted);
-            _speakerToggle.EnableInClassList("danger", isSpeakerMuted);
-
             _joinGlobal.EnableInClassList("selected", isInVoice && _comm.ActiveVoiceChannel.Value == CommChannelKind.Global);
             _joinClan.EnableInClassList("selected", isInVoice && _comm.ActiveVoiceChannel.Value == CommChannelKind.Clan);
 
+            // Icon buttons carry no label, so the state has to be readable from the icon itself:
+            // colour plus a slash overlay, with the tooltip naming the action for anyone who hovers.
+            bool isMicMuted = _comm != null && _comm.IsMicrophoneMuted;
+            bool isSpeakerMuted = _comm != null && _comm.IsSpeakerMuted;
+
+            _micToggle.EnableInClassList("on", !isMicMuted);
+            _micToggle.EnableInClassList("off", isMicMuted);
+            _micToggle.tooltip = isMicMuted ? "Microphone muted - click to unmute" : "Microphone on - click to mute";
+
+            _speakerToggle.EnableInClassList("on", !isSpeakerMuted);
+            _speakerToggle.EnableInClassList("off", isSpeakerMuted);
+            _speakerToggle.tooltip = isSpeakerMuted ? "Incoming voice muted - click to unmute" : "Incoming voice on - click to mute";
+
+            if (isMicMuted)
+            {
+                // Drop the level immediately rather than letting it decay, so the meter cannot
+                // still be moving after the player has muted themselves.
+                _meterLevel = 0f;
+                ApplyMeterLevel();
+            }
+
             RefreshParticipants();
+        }
+
+        /// <summary>
+        /// Drives the mic meter from the transport's measured audio energy. Nothing here invents a
+        /// level: when the transport reports nothing, the meter reads zero.
+        /// </summary>
+        private void RefreshMicrophoneLevel()
+        {
+            if (_comm == null)
+            {
+                return;
+            }
+
+            float target = Mathf.Clamp01(_comm.MicrophoneEnergy);
+            float rate = target > _meterLevel ? _meterAttack : _meterRelease;
+            _meterLevel = Mathf.Lerp(_meterLevel, target, rate);
+            if (_meterLevel < 0.005f)
+            {
+                _meterLevel = 0f;
+            }
+
+            ApplyMeterLevel();
+
+            // Outline the button while the transport is actually hearing the player, so the cue
+            // survives even at a glance too brief to read a 34px meter.
+            bool isLive = _meterLevel > 0.06f && !_comm.IsMicrophoneMuted;
+            if (isLive != _isMicLive)
+            {
+                _isMicLive = isLive;
+                _micToggle.EnableInClassList("live", isLive);
+            }
+        }
+
+        private void ApplyMeterLevel()
+        {
+            if (_micMeterFill == null)
+            {
+                return;
+            }
+
+            _micMeterFill.style.width = _meterWidth * _meterLevel;
         }
 
         private void RefreshParticipants()
