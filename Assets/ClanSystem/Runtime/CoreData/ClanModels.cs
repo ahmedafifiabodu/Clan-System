@@ -175,9 +175,17 @@ namespace ClanSystem.CoreData
     public class ClanSearchPage
     {
         [JsonProperty("clans")] public List<ClanSummary> Clans { get; set; }
+
+        /// <summary>
+        /// How many clans the caller has been shown up to and including this page, not how many
+        /// exist. The directory is a Cloud Save query index and a query does not report a match
+        /// count, so use <see cref="HasMore"/> to decide whether to ask for another page.
+        /// </summary>
         [JsonProperty("total")] public int Total { get; set; }
+
         [JsonProperty("offset")] public int Offset { get; set; }
         [JsonProperty("limit")] public int Limit { get; set; }
+        [JsonProperty("hasMore")] public bool HasMore { get; set; }
     }
 
     /// <summary>

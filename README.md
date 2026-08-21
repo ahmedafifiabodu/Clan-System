@@ -62,8 +62,9 @@ Friends on the left with presence and clan tags, the caller's own clan roster on
 | Sign-in, player identity | Authentication 3.7.4 (anonymous + profiles) | Profiles give separate player ids on one machine, which is what makes local multi-client testing possible |
 | Display names | Player Names | The server reads names from the name service rather than trusting the client |
 | Friends, presence | Friends 1.2.0 | Official social graph and presence events |
-| Clan records, rosters, invites | Cloud Save **private custom data** | Unreachable with a player token — a client cannot read another clan's roster even by forging requests |
-| Clan directory (search) | Cloud Save private custom data, **sharded across 16 items** | Cloud Save query indexes only cover *player* data; clan records live in private custom data by design, so search fans out over shards instead |
+| Clan records, rosters | Cloud Save **private custom data** | Unreachable with a player token — a client cannot read another clan's roster even by forging requests |
+| Per-player state (membership, invites, cooldowns, mutes) | Cloud Save **protected player data** | The player may read their own record but never write it, and it is scoped to the player, so it is deleted with them |
+| Clan directory (browse, search) | Cloud Save **query index** over the clan items | One query instead of a fan-out, and no second copy of each clan that can drift from its profile |
 | All mutations, permissions | Cloud Code 2.10.4 (JS) | One choke point for authority, validation, rate limiting and write-lock retries |
 | Text and voice chat | Vivox 16.11.0 | One transport for both, with push delivery, server-held history, participant presence and speaking state |
 | Rankings | Leaderboards 2.3.4 | Real ranking service; scores written only from Cloud Code |

@@ -24,19 +24,21 @@ const CONFIG = {
 const ok = (data) => ({ ok: true, code: "OK", message: "", data: data || {} });
 const fail = (code, message) => ({ ok: false, code: code, message: message, data: {} });
 
-const playerKey = (id) => `player-${id}`;
-
-async function readPrivate(api, projectId, customId, key) {
-  const res = await api.getPrivateCustomItems(projectId, customId, [key]);
+// The moderation record is protected player data: the server writes it, the player may read it.
+// Reading it is harmless - it is the player's own restriction and they are already living under it -
+// and being unable to write it is the whole point. Protected data is also scoped to the player, so
+// the record goes away when the player is deleted rather than outliving them as an orphan item.
+async function readPlayer(api, projectId, playerId, key) {
+  const res = await api.getProtectedItems(projectId, playerId, [key]);
   const results = (res && res.data && res.data.results) || [];
   if (results.length === 0) return { value: null, writeLock: null };
   return { value: results[0].value, writeLock: results[0].writeLock };
 }
 
-async function writePrivate(api, projectId, customId, key, value, writeLock) {
+async function writePlayer(api, projectId, playerId, key, value, writeLock) {
   const body = { key: key, value: value };
   if (writeLock) body.writeLock = writeLock;
-  await api.setPrivateCustomItem(projectId, customId, body);
+  await api.setProtectedItem(projectId, playerId, body);
 }
 
 // The event shape is owned by the Moderation service and can carry different field names across
@@ -103,8 +105,8 @@ module.exports = async ({ params, context, logger }) => {
   const projectId = context.projectId;
 
   if (isLifted) {
-    const current = await readPrivate(api, projectId, playerKey(playerId), "moderation");
-    await writePrivate(api, projectId, playerKey(playerId), "moderation", {
+    const current = await readPlayer(api, projectId, playerId, "moderation");
+    await writePlayer(api, projectId, playerId, "moderation", {
       textBlockedUntil: 0,
       voiceBlockedUntil: 0,
       gameBannedUntil: 0,
@@ -123,7 +125,7 @@ module.exports = async ({ params, context, logger }) => {
   }
 
   const expiresAt = resolveExpiry(event, now);
-  const current = await readPrivate(api, projectId, playerKey(playerId), "moderation");
+  const current = await readPlayer(api, projectId, playerId, "moderation");
   const record = current.value || {};
 
   if (effects.text) record.textBlockedUntil = expiresAt;
@@ -132,7 +134,7 @@ module.exports = async ({ params, context, logger }) => {
   record.lastAction = actionName;
   record.updatedAt = now;
 
-  await writePrivate(api, projectId, playerKey(playerId), "moderation", record, current.writeLock);
+  await writePlayer(api, projectId, playerId, "moderation", record, current.writeLock);
 
   logger.info("Moderation restrictions applied", {
     playerId: playerId,

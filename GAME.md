@@ -84,13 +84,15 @@ The three found by the Play Mode fixture (`SocialBackendTests`) are fixed:
 ## Known limitations (by design, not bugs)
 
 - Voice-channel switches are now serialised (`SemaphoreSlim` gate) — no longer a limitation, fixed.
-- Clan directory is sharded across 16 Cloud Save items; search fans out concurrently. Cloud Save
-  query indexes cover only player data, so they are not usable for clan records held in private
-  custom data.
-- Stale data from before sharding: the old `index` item is abandoned, not read. Clans listed only
-  there are unsearchable, but their `clan-{id}` records and the owning players' `social.clanId`
-  remain in Cloud Save. Clearing them needs a new environment or a Dashboard wipe — Cloud Save
-  private custom data has no list-all API, so it cannot be scripted.
+- Clan search matches a name *prefix*, not a substring. The directory is a Cloud Save query index
+  now, and queries compare rather than search, so `OLF` no longer finds `WOLFPACK`. Exact tag match
+  still works on any tag and outranks name hits. The old fan-out could substring-match only because
+  it had already loaded every clan into memory, which is the part that did not scale.
+- Search reports `hasMore` rather than a true result count. A query does not say how many rows it
+  could have returned, so `total` is what the caller has actually been shown.
+- Cloud Save has no list-all API for custom items, so nothing in the backend can enumerate every
+  clan or player. Any bulk operation over existing data has to be driven from the Dashboard or the
+  UGS CLI, which is why the environment is wiped rather than migrated when the layout changes.
 - No profanity filter in the old sense — Vivox Safe Text now owns that; see moderation scripts above.
 - `Application.runInBackground` must stay `true` — with it off, async requests freeze when the Editor
   loses focus. Already set in ProjectSettings.

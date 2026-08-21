@@ -17,13 +17,8 @@ const ok = (data) => ({ ok: true, code: "OK", message: "", data: data || {} });
 const fail = (code, message) => ({ ok: false, code: code, message: message, data: {} });
 
 const clanId_ = (id) => `clan-${id}`;
-const playerId_ = (id) => `player-${id}`;
 
-// Must match SOCIAL_ClanCommand.js. Cloud Code scripts cannot share modules, so the shard layout
-// is duplicated here the same way readPrivate/mutate already are.
-const SHARD_COUNT = 16;
-
-const clanShardId_ = (shard) => `index-c${shard}`;
+const DIRECTORY_KEYS = ["summary"];
 
 async function readPrivate(api, projectId, customId, key) {
   const res = await api.getPrivateCustomItems(projectId, customId, [key]);
@@ -32,24 +27,55 @@ async function readPrivate(api, projectId, customId, key) {
   return { value: results[0].value, writeLock: results[0].writeLock };
 }
 
-/// Reads every directory shard and merges them into one clanId -> summary map. Shards are fetched
-/// concurrently, so the fan-out costs one round trip, not SHARD_COUNT.
-async function readClanDirectory(api, projectId) {
-  const sources = [];
-  for (let shard = 0; shard < SHARD_COUNT; shard++) {
-    sources.push(readPrivate(api, projectId, clanShardId_(shard), "clans"));
-  }
+// Per-player state is protected player data: the player reads it, only the server writes it.
+async function readPlayer(api, projectId, playerId, key) {
+  const res = await api.getProtectedItems(projectId, playerId, [key]);
+  const results = (res && res.data && res.data.results) || [];
+  if (results.length === 0) return { value: null, writeLock: null };
+  return { value: results[0].value, writeLock: results[0].writeLock };
+}
 
-  const items = await Promise.all(sources);
-  const merged = {};
-  for (let i = 0; i < items.length; i++) {
-    const map = (items[i].value && items[i].value.map) || {};
-    for (const clanId of Object.keys(map)) {
-      merged[clanId] = map[clanId];
+
+/// Runs one directory query and returns the clan summaries it matched.
+///
+/// `fields` is ANDed by the service and also decides the sort, so every read path here states its
+/// ordering as part of its filter rather than sorting the page afterwards - sorting after the fact
+/// would only order the slice that came back, which is not the same thing.
+///
+/// The summary blob is requested through `returnKeys`. A row that comes back without one is read
+/// directly instead - `returnKeys` is documented as a projection but not documented to cover keys
+/// the index does not itself carry, so the fallback is what makes browse correct either way. If it
+/// fires on every row, the symptom is a slow browse rather than a wrong one.
+async function queryDirectory(api, projectId, fields, limit, offset) {
+  const res = await api.queryPrivateCustomData(projectId, {
+    fields: fields,
+    returnKeys: DIRECTORY_KEYS,
+    offset: offset,
+    limit: limit,
+  });
+
+  const results = (res && res.data && res.data.results) || [];
+  const pending = [];
+  for (let i = 0; i < results.length; i++) {
+    const row = results[i];
+    const entries = row.data || [];
+    let summary = null;
+    for (let e = 0; e < entries.length; e++) {
+      if (entries[e].key === "summary") summary = entries[e].value;
+    }
+    if (summary) {
+      pending.push(Promise.resolve(summary));
+    } else if (row.id) {
+      pending.push(readPrivate(api, projectId, row.id, "summary").then((item) => item.value));
     }
   }
 
-  return merged;
+  const summaries = await Promise.all(pending);
+  const list = [];
+  for (let i = 0; i < summaries.length; i++) {
+    if (summaries[i]) list.push(summaries[i]);
+  }
+  return list;
 }
 
 function publicView(profile) {
@@ -93,7 +119,7 @@ module.exports = async ({ params, context, logger }) => {
 
   if (!callerId) return fail("UNAUTHENTICATED", "No player context.");
 
-  const socialItem = await readPrivate(api, projectId, playerId_(callerId), "social");
+  const socialItem = await readPlayer(api, projectId, callerId, "social");
   const social = socialItem.value || { playerId: callerId, clanId: null, role: null, score: 0, contribution: 0 };
 
   const loadProfile = async (clanId) => {
@@ -116,7 +142,7 @@ module.exports = async ({ params, context, logger }) => {
         }
       }
 
-      const invitesItem = await readPrivate(api, projectId, playerId_(callerId), "invites");
+      const invitesItem = await readPlayer(api, projectId, callerId, "invites");
       const inviteMap = (invitesItem.value && invitesItem.value.map) || {};
       const invites = [];
       for (const key of Object.keys(inviteMap)) {
@@ -167,25 +193,78 @@ module.exports = async ({ params, context, logger }) => {
     }
 
     case "search": {
-      const map = await readClanDirectory(api, projectId);
       const query = typeof payload.query === "string" ? payload.query.trim().toUpperCase() : "";
       const onlyPublic = payload.onlyPublic !== false;
       const limit = Math.min(CONFIG.searchLimitMax, Math.max(1, payload.limit || 20));
       const offset = Math.max(0, payload.offset || 0);
 
-      const matches = [];
-      for (const key of Object.keys(map)) {
-        const summary = map[key];
-        if (onlyPublic && summary.isPublic === false) continue;
-        if (query.length > 0) {
-          const nameUpper = summary.nameUpper || (summary.name || "").toUpperCase();
-          if (nameUpper.indexOf(query) < 0 && (summary.tag || "").indexOf(query) < 0) continue;
-        }
-        matches.push(summary);
-      }
-      matches.sort((a, b) => (b.score || 0) - (a.score || 0));
+      // Public-ness is an equality facet so it can sit in front of the ordered facet in a compound
+      // index. When the caller wants private clans too the filter is dropped entirely rather than
+      // widened, because `dirPublic NE 0` would need an index the browse path does not have.
+      const visibility = onlyPublic ? [{ key: "dirPublic", op: "EQ", value: 1, asc: true }] : [];
 
-      return ok({ clans: matches.slice(offset, offset + limit), total: matches.length, offset: offset, limit: limit });
+      let matches;
+      if (query.length === 0) {
+        // Browse: no term, so the whole index is the result set, ordered by score.
+        // `dirScore GE 0` is a filter that excludes nothing - scores are clamped non-negative -
+        // and exists only to name the key the service should sort on.
+        matches = await queryDirectory(api, projectId,
+          visibility.concat([{ key: "dirScore", op: "GE", value: 0, asc: false }]), limit, offset);
+      } else {
+        // A term is matched two ways, and the two cannot share a request: `fields` is ANDed, and a
+        // clan matches on its tag *or* its name. They run concurrently and are merged below.
+        //
+        // Name matching is a prefix, not a substring. Cloud Save queries compare, they do not
+        // search, so `GE term` with an upper bound just past the term is the strongest name filter
+        // an index can serve. `startsWith` is re-checked locally because the bound is only correct
+        // if the service compares exactly as JavaScript does.
+        const upperBound = query + "￿";
+        const [byTag, byName] = await Promise.all([
+          queryDirectory(api, projectId,
+            visibility.concat([{ key: "dirTag", op: "EQ", value: query, asc: true }]), limit, 0),
+          queryDirectory(api, projectId,
+            visibility.concat([
+              { key: "dirNameUpper", op: "GE", value: query, asc: true },
+              { key: "dirNameUpper", op: "LT", value: upperBound, asc: true },
+            ]), limit + offset, 0),
+        ]);
+
+        const byScore = (a, b) => (b.score || 0) - (a.score || 0);
+        const seen = {};
+        const tagHits = [];
+        const nameHits = [];
+
+        for (let i = 0; i < byTag.length; i++) {
+          if (seen[byTag[i].clanId]) continue;
+          seen[byTag[i].clanId] = true;
+          tagHits.push(byTag[i]);
+        }
+        for (let i = 0; i < byName.length; i++) {
+          const summary = byName[i];
+          const nameUpper = summary.nameUpper || (summary.name || "").toUpperCase();
+          if (nameUpper.indexOf(query) !== 0) continue;
+          if (seen[summary.clanId]) continue;
+          seen[summary.clanId] = true;
+          nameHits.push(summary);
+        }
+
+        // An exact tag hit is the strongest signal a player can give, so the whole tag group
+        // outranks the whole name group. Sorting the merged list by score instead would let a
+        // high-scoring name match jump ahead of the clan whose tag was typed verbatim.
+        tagHits.sort(byScore);
+        nameHits.sort(byScore);
+        matches = tagHits.concat(nameHits).slice(offset, offset + limit);
+      }
+
+      // The service does not report how many rows a query could have returned, so `total` is what
+      // the caller has actually been shown. `hasMore` is the honest signal for paging.
+      return ok({
+        clans: matches,
+        total: offset + matches.length,
+        offset: offset,
+        limit: limit,
+        hasMore: matches.length >= limit,
+      });
     }
 
     case "activity": {
@@ -213,7 +292,7 @@ module.exports = async ({ params, context, logger }) => {
       const players = [];
       for (const id of ids) {
         if (typeof id !== "string" || id.length === 0) continue;
-        const item = await readPrivate(api, projectId, playerId_(id), "social");
+        const item = await readPlayer(api, projectId, id, "social");
         const value = item.value || {};
         let name = value.name || null;
         if (!name) {
@@ -254,4 +333,4 @@ module.exports = async ({ params, context, logger }) => {
 
 module.exports.params = { action: "String", payload: "JSON" };
 
-// schema-rev 2
+// schema-rev 3

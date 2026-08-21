@@ -3,8 +3,9 @@ const { LeaderboardsApi } = require("@unity-services/leaderboards-1.1");
 const { PlayerNamesApi } = require("@unity-services/player-names-1.0");
 const axios = require("axios-1.6");
 
-// Server-authoritative clan mutations. The client never writes clan state directly:
-// every field below lives in Cloud Save *private* custom data, which player tokens cannot reach.
+// Server-authoritative clan mutations. The client never writes clan state directly. Clan records
+// live in Cloud Save *private custom* data, which player tokens cannot reach at all; per-player
+// records live in *protected player* data, which players may read but only a server may write.
 
 const CONFIG = {
   maxMembersDefault: 30,
@@ -30,16 +31,28 @@ const ok = (data) => ({ ok: true, code: "OK", message: "", data: data || {} });
 const fail = (code, message) => ({ ok: false, code: code, message: message, data: {} });
 
 const clanId_ = (id) => `clan-${id}`;
-const playerId_ = (id) => `player-${id}`;
 
-// The directory is sharded: a clan hashes to one of SHARD_COUNT buckets, so writes spread out and
-// no single item grows without bound. Cloud Save query indexes are not an option - they only cover
-// player data, and clan records live in *private custom* data precisely so player tokens cannot
-// reach them.
+// Per-player state lives in *protected* player data, not in custom (game) data. Protected is the
+// player-reads / server-writes access class, which is exactly this data's contract, and unlike a
+// custom item it is scoped to the player - so it is removed when the player is deleted instead of
+// being left behind as an orphan `player-<id>` item forever.
+//
+// Everything here is the player's own record, so letting them read it costs nothing: they already
+// know their clan, their invites, their cooldowns and their own mute. What they must not be able to
+// do is *write* it, and protected data forbids that.
+
+// The clan directory is a Cloud Save query index over the `clan-<id>` items themselves, not a
+// separate list. Each clan carries a small `summary` blob plus flat `dir*` facets that the index
+// covers, so browse and tag lookup are one query instead of a fan-out over shard items, and there
+// is no second copy of the summary that can drift from the profile.
+//
+// Tag *uniqueness* still needs its own item: a query is a read, and a read cannot atomically
+// reserve. The tag shards below stay, because their write lock is what serialises two clans racing
+// for the same tag.
 const SHARD_COUNT = 16;
 
-// FNV-1a plus a MurmurHash3 finalizer. Stability matters more than speed here: the shard a clan
-// hashes to must never change, or its directory entry becomes unreachable.
+// FNV-1a plus a MurmurHash3 finalizer. Stability matters more than speed here: the shard a tag
+// hashes to must never change, or its reservation becomes unreachable.
 //
 // Math.imul is required, not cosmetic - `hash * 0x01000193` is a float64 multiply that silently
 // loses precision past 2^53 and wrecks the hash (measured 15x bucket skew on realistic tags).
@@ -61,7 +74,6 @@ function shardOf(value) {
   return (hash >>> 0) % SHARD_COUNT;
 }
 
-const clanShardId_ = (clanId) => `index-c${shardOf(clanId)}`;
 const tagShardId_ = (tag) => `index-t${shardOf(tag)}`;
 
 async function readPrivate(api, projectId, customId, key) {
@@ -88,6 +100,41 @@ async function mutate(api, projectId, customId, key, mutator) {
     if (next && next.__abort) return next;
     try {
       await writePrivate(api, projectId, customId, key, next, current.writeLock);
+      return next;
+    } catch (err) {
+      const status = err && err.response && err.response.status;
+      if (status !== 409) throw err;
+      lastError = err;
+    }
+  }
+  throw lastError || new Error("write conflict");
+}
+
+// Protected player data mirrors the private-custom helpers above. The two access classes are
+// reached through different API methods, so the pair has to be spelled out rather than
+// parameterised on a "kind" flag - the flag would only hide which storage a call site touches.
+async function readPlayer(api, projectId, playerId, key) {
+  const res = await api.getProtectedItems(projectId, playerId, [key]);
+  const results = (res && res.data && res.data.results) || [];
+  if (results.length === 0) return { value: null, writeLock: null };
+  return { value: results[0].value, writeLock: results[0].writeLock };
+}
+
+async function writePlayer(api, projectId, playerId, key, value, writeLock) {
+  const body = { key: key, value: value };
+  if (writeLock) body.writeLock = writeLock;
+  await api.setProtectedItem(projectId, playerId, body);
+}
+
+async function mutatePlayer(api, projectId, playerId, key, mutator) {
+  let lastError = null;
+  for (let attempt = 0; attempt < CONFIG.writeRetries; attempt++) {
+    const current = await readPlayer(api, projectId, playerId, key);
+    const next = await mutator(current.value);
+    if (next === undefined) return null;
+    if (next && next.__abort) return next;
+    try {
+      await writePlayer(api, projectId, playerId, key, next, current.writeLock);
       return next;
     } catch (err) {
       const status = err && err.response && err.response.status;
@@ -152,7 +199,7 @@ function sumContributions(memberMap) {
 }
 
 async function loadSocial(api, projectId, playerId) {
-  const social = await readPrivate(api, projectId, playerId_(playerId), "social");
+  const social = await readPlayer(api, projectId, playerId, "social");
   return social.value || { playerId: playerId, clanId: null, role: null, score: 0, contribution: 0 };
 }
 
@@ -193,17 +240,43 @@ async function syncClanLeaderboard(context, profile) {
   }
 }
 
-async function updateIndex(api, projectId, clanId, summary) {
-  await mutate(api, projectId, clanShardId_(clanId), "clans", (current) => {
-    const map = (current && current.map) || {};
-    if (summary === null) delete map[clanId];
-    else map[clanId] = summary;
-    return { map: map };
+/// Publishes a clan into the directory index.
+///
+/// `summary` is the row the browse UI renders; the `dir*` keys are the flat, small values the
+/// Cloud Save index is configured over. They are split because an index only covers scalar keys
+/// under 128 bytes - the summary blob is too large to index, and the facets are too thin to render.
+///
+/// Written in one batch call, and with `writeLock: null` throughout: every one of these values is
+/// derived from the profile that was just committed, so the newest write is always the correct
+/// one and a lock here would only manufacture conflicts to retry.
+async function publishDirectoryEntry(api, projectId, profile) {
+  const summary = summarize(profile);
+  await api.setPrivateCustomItemBatch(projectId, clanId_(profile.clanId), {
+    data: [
+      { key: "summary", value: summary, writeLock: null },
+      { key: "dirPublic", value: profile.isPublic === false ? 0 : 1, writeLock: null },
+      { key: "dirScore", value: Math.max(0, profile.score || 0), writeLock: null },
+      { key: "dirTag", value: profile.tag, writeLock: null },
+      { key: "dirNameUpper", value: summary.nameUpper, writeLock: null },
+    ],
   });
 }
 
+/// Removes a clan from the directory index. Deleting the whole item would also work, but the
+/// caller deletes the clan's own keys separately and a partial failure there must not leave an
+/// indexed-but-profileless clan visible in browse.
+async function unpublishDirectoryEntry(api, projectId, clanId) {
+  for (const key of ["summary", "dirPublic", "dirScore", "dirTag", "dirNameUpper"]) {
+    try {
+      await api.deletePrivateCustomItem(projectId, clanId_(clanId), key);
+    } catch (err) {
+      // Already absent - deletion is idempotent for our purposes.
+    }
+  }
+}
+
 async function setPlayerSocial(api, projectId, playerId, social) {
-  await mutate(api, projectId, playerId_(playerId), "social", () => social);
+  await mutatePlayer(api, projectId, playerId, "social", () => social);
 }
 
 /// Builds the service account's `Basic` authorization header, if credentials are provisioned.
@@ -270,7 +343,7 @@ module.exports = async ({ params, context, logger, secretManager }) => {
     case "create": {
       if (social.clanId) return fail("ALREADY_IN_CLAN", "Leave your current clan first.");
 
-      const rate = await readPrivate(api, projectId, playerId_(callerId), "rate");
+      const rate = await readPlayer(api, projectId, callerId, "rate");
       const rateValue = rate.value || {};
       if (rateValue.lastClanCreate && now - rateValue.lastClanCreate < CONFIG.clanCreateCooldownMs) {
         return fail("RATE_LIMITED", "You created a clan recently. Try again later.");
@@ -334,8 +407,8 @@ module.exports = async ({ params, context, logger, secretManager }) => {
       social.joinedAt = now;
       social.contribution = 0;
       await setPlayerSocial(api, projectId, callerId, social);
-      await writePrivate(api, projectId, playerId_(callerId), "rate", Object.assign({}, rateValue, { lastClanCreate: now }), rate.writeLock);
-      await updateIndex(api, projectId, clanId, summarize(profile));
+      await writePlayer(api, projectId, callerId, "rate", Object.assign({}, rateValue, { lastClanCreate: now }), rate.writeLock);
+      await publishDirectoryEntry(api, projectId, profile);
       await appendActivity(api, projectId, clanId, { ts: now, type: "created", actorName: callerName, text: `${callerName} founded the clan.` });
       await syncClanLeaderboard(context, profile);
 
@@ -374,7 +447,7 @@ module.exports = async ({ params, context, logger, secretManager }) => {
       social.role = ROLE.member;
       social.joinedAt = now;
       await setPlayerSocial(api, projectId, callerId, social);
-      await updateIndex(api, projectId, target.clanId, summarize(updated));
+      await publishDirectoryEntry(api, projectId, updated);
       await appendActivity(api, projectId, target.clanId, { ts: now, type: "joined", actorName: callerName, text: `${callerName} joined the clan.` });
 
       return ok({ clan: updated, role: ROLE.member });
@@ -443,7 +516,7 @@ module.exports = async ({ params, context, logger, secretManager }) => {
         value.memberCount = Object.keys(members.map).length;
         return value;
       });
-      await updateIndex(api, projectId, updated.clanId, summarize(updated));
+      await publishDirectoryEntry(api, projectId, updated);
       await appendActivity(api, projectId, updated.clanId, { ts: now, type: "joined", actorName: request.name, text: `${request.name} was accepted by ${callerName}.` });
       return ok({ handled: true, accepted: true });
     }
@@ -459,7 +532,7 @@ module.exports = async ({ params, context, logger, secretManager }) => {
       if (targetSocial.clanId === gate.profile.clanId) return fail("ALREADY_MEMBER", "That player is already in your clan.");
 
       const inviteId = newId(targetId, now);
-      const stored = await mutate(api, projectId, playerId_(targetId), "invites", (current) => {
+      const stored = await mutatePlayer(api, projectId, targetId, "invites", (current) => {
         const map = (current && current.map) || {};
         for (const key of Object.keys(map)) {
           if (map[key].expiresAt < now) delete map[key];
@@ -492,7 +565,7 @@ module.exports = async ({ params, context, logger, secretManager }) => {
       // Invites live under the *receiver's* private record, so a client can only ever
       // resolve invitations addressed to its own authenticated player id.
       let invite = null;
-      await mutate(api, projectId, playerId_(callerId), "invites", (current) => {
+      await mutatePlayer(api, projectId, callerId, "invites", (current) => {
         const map = (current && current.map) || {};
         invite = map[inviteId] || null;
         if (invite) delete map[inviteId];
@@ -534,7 +607,7 @@ module.exports = async ({ params, context, logger, secretManager }) => {
         value.memberCount = Object.keys(members.map).length;
         return value;
       });
-      await updateIndex(api, projectId, updated.clanId, summarize(updated));
+      await publishDirectoryEntry(api, projectId, updated);
       await appendActivity(api, projectId, updated.clanId, { ts: now, type: "joined", actorName: callerName, text: `${callerName} accepted an invite from ${invite.senderName}.` });
       return ok({ accepted: true, clan: updated });
     }
@@ -564,7 +637,7 @@ module.exports = async ({ params, context, logger, secretManager }) => {
       social.role = null;
       social.contribution = 0;
       await setPlayerSocial(api, projectId, callerId, social);
-      await updateIndex(api, projectId, updated.clanId, summarize(updated));
+      await publishDirectoryEntry(api, projectId, updated);
       await appendActivity(api, projectId, updated.clanId, { ts: now, type: "left", actorName: callerName, text: `${callerName} left the clan.` });
       await syncClanLeaderboard(context, updated);
       return ok({ left: true });
@@ -602,7 +675,7 @@ module.exports = async ({ params, context, logger, secretManager }) => {
         value.score = sumContributions(members.map);
         return value;
       });
-      await updateIndex(api, projectId, updated.clanId, summarize(updated));
+      await publishDirectoryEntry(api, projectId, updated);
       await appendActivity(api, projectId, updated.clanId, { ts: now, type: "kicked", actorName: callerName, text: `${target.name} was removed by ${callerName}.` });
       await syncClanLeaderboard(context, updated);
       return ok({ kicked: true });
@@ -678,7 +751,7 @@ module.exports = async ({ params, context, logger, secretManager }) => {
         if (payload.emblemId !== undefined) value.emblemId = Math.max(0, Math.min(11, payload.emblemId | 0));
         return value;
       });
-      await updateIndex(api, projectId, updated.clanId, summarize(updated));
+      await publishDirectoryEntry(api, projectId, updated);
       return ok({ clan: updated });
     }
 
@@ -710,11 +783,11 @@ module.exports = async ({ params, context, logger, secretManager }) => {
       delete map[profile.tag];
       return { map: map };
     });
-    await updateIndex(api, projectId, profile.clanId, null);
+    await unpublishDirectoryEntry(api, projectId, profile.clanId);
 
     for (const key of ["profile", "members", "chat", "activity", "requests"]) {
       try {
-        await api.deletePrivateCustomItem(key, projectId, clanId_(profile.clanId));
+        await api.deletePrivateCustomItem(projectId, clanId_(profile.clanId), key);
       } catch (err) {
         // Already absent - deletion is idempotent for our purposes.
       }
@@ -797,4 +870,4 @@ module.exports = async ({ params, context, logger, secretManager }) => {
 
 module.exports.params = { action: "String", payload: "JSON" };
 
-// schema-rev 2
+// schema-rev 3
