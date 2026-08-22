@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading;
@@ -780,19 +780,39 @@ namespace ClanSystem.Services
             return channel == CommChannelKind.Clan ? _clanChannelName : _config.GlobalChannelName;
         }
 
+        /// <summary>
+        /// Maps a channel name reported by the SDK back to the channel this client asked for.
+        ///
+        /// Matched loosely on purpose. Vivox reports a channel by its name in some callbacks and by
+        /// its full URI (<c>sip:confctl-g-issuer.name@domain</c>) in others, and a kind this method
+        /// fails to resolve is a participant event dropped on the floor - somebody joins and the
+        /// roster does not say so until the next poll. Containment is safe here because the only
+        /// two candidates are names this client built itself.
+        /// </summary>
         private CommChannelKind? ResolveChannelKind(string channelName)
         {
-            if (string.Equals(channelName, _config.GlobalChannelName, StringComparison.Ordinal))
+            if (string.IsNullOrEmpty(channelName))
+            {
+                return null;
+            }
+
+            if (Matches(channelName, _config.GlobalChannelName))
             {
                 return CommChannelKind.Global;
             }
 
-            if (!string.IsNullOrEmpty(_clanChannelName) && string.Equals(channelName, _clanChannelName, StringComparison.Ordinal))
+            return Matches(channelName, _clanChannelName) ? CommChannelKind.Clan : (CommChannelKind?)null;
+        }
+
+        private static bool Matches(string reported, string expected)
+        {
+            if (string.IsNullOrEmpty(expected))
             {
-                return CommChannelKind.Clan;
+                return false;
             }
 
-            return null;
+            return string.Equals(reported, expected, StringComparison.Ordinal)
+                || reported.IndexOf(expected, StringComparison.Ordinal) >= 0;
         }
 
         private CommMessage Convert(VivoxMessage message, CommChannelKind channel)

@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using ClanSystem.CoreData;
 using ClanSystem.Services;
 using UnityEngine;
@@ -19,6 +19,13 @@ namespace ClanSystem.Presentation
     {
         /// <summary>Level meter tick. Fast enough to track speech, cheap enough to ignore.</summary>
         private const int _meterIntervalMs = 50;
+
+        /// <summary>
+        /// Explains the volume scale where the player can find it. Vivox's local volume adjusts a
+        /// player relative to normal rather than setting a loudness, so a centred slider reading 0
+        /// is the correct resting state and needs saying once.
+        /// </summary>
+        private const string _volumeHelp = "Louder or quieter, for you only. 0 leaves them at normal volume.";
 
         /// <summary>
         /// Meter smoothing per tick, 0 to 1. Raw audio energy is spiky enough to strobe; rising
@@ -44,6 +51,8 @@ namespace ClanSystem.Presentation
         private readonly VisualElement _micMeterFill;
         private readonly ScrollView _participants;
         private readonly Label _participantsEmpty;
+
+        private readonly List<string> _rosterIds = new List<string>();
 
         private IVisualElementScheduledItem _pollHandle;
         private IVisualElementScheduledItem _meterHandle;
@@ -291,35 +300,69 @@ namespace ClanSystem.Presentation
             _micMeterFill.style.width = _meterWidth * _meterLevel;
         }
 
+        /// <summary>
+        /// Which channel's roster the rail shows.
+        ///
+        /// Transmitting into a channel is not the same as being in it: the client joins global on
+        /// login and only starts transmitting when the player presses Join. Showing the roster of
+        /// the joined channel rather than only the transmitting one is what lets a player see that
+        /// somebody is already in global voice - which is the whole reason to press Join.
+        /// </summary>
+        private CommChannelKind? ResolveRosterChannel()
+        {
+            if (_comm == null)
+            {
+                return null;
+            }
+
+            if (_comm.ActiveVoiceChannel.HasValue)
+            {
+                return _comm.ActiveVoiceChannel.Value;
+            }
+
+            if (_comm.IsTextJoined(CommChannelKind.Clan))
+            {
+                return CommChannelKind.Clan;
+            }
+
+            return _comm.IsTextJoined(CommChannelKind.Global) ? CommChannelKind.Global : (CommChannelKind?)null;
+        }
+
         private void RefreshParticipants()
         {
-            if (_comm == null || !_comm.ActiveVoiceChannel.HasValue)
+            CommChannelKind? rosterChannel = ResolveRosterChannel();
+            if (!rosterChannel.HasValue)
             {
                 _participants.Clear();
+                _rosterIds.Clear();
                 _participantsEmpty.style.display = DisplayStyle.Flex;
-                _participantsEmpty.text = "Join a voice channel to see who is connected.";
+                _participantsEmpty.text = "Connect to voice to see who is here.";
                 return;
             }
 
-            CommChannelKind channel = _comm.ActiveVoiceChannel.Value;
-            IReadOnlyList<CommParticipant> people = _comm.GetParticipants(channel);
+            IReadOnlyList<CommParticipant> people = _comm.GetParticipants(rosterChannel.Value);
 
             _participantsEmpty.style.display = people.Count == 0 ? DisplayStyle.Flex : DisplayStyle.None;
             _participantsEmpty.text = "Nobody else is here yet.";
 
-            // Rebuild only when the roster changes; otherwise update speaking state in place so the
-            // indicator does not flicker.
-            if (_participants.childCount != people.Count)
+            // Rebuilt when the roster's membership or order changes, not merely its size: somebody
+            // leaving as somebody else arrives keeps the count identical while every row now
+            // describes the wrong person, which is how a mute button ends up muting a stranger.
+            if (HasRosterChanged(people))
             {
                 _participants.Clear();
+                _rosterIds.Clear();
                 for (int i = 0; i < people.Count; i++)
                 {
                     _participants.Add(BuildParticipantRow(people[i]));
+                    _rosterIds.Add(people[i].PlayerId);
                 }
 
                 return;
             }
 
+            // Same people in the same order: update in place so the speaking dot does not flicker
+            // and a slider being dragged is not pulled out from under the pointer.
             for (int i = 0; i < people.Count; i++)
             {
                 VisualElement row = _participants[i];
@@ -329,14 +372,47 @@ namespace ClanSystem.Presentation
                 VisualElement indicator = row.Q<VisualElement>("speaking-dot");
                 indicator?.EnableInClassList("active", participant.IsSpeaking);
 
-                Button mute = row.Q<Button>("participant-mute");
-                if (mute != null && !participant.IsSelf)
+                if (participant.IsSelf)
                 {
-                    mute.text = _comm.IsPlayerMuted(participant.PlayerId) ? "Unmute" : "Mute";
+                    continue;
                 }
+
+                bool isMuted = _comm.IsPlayerMuted(participant.PlayerId);
+                Button mute = row.Q<Button>("participant-mute");
+                if (mute != null)
+                {
+                    mute.text = isMuted ? "Unmute" : "Mute";
+                    mute.EnableInClassList("muted", isMuted);
+                    mute.tooltip = isMuted ? "Unmute this player for you only" : "Mute this player for you only";
+                }
+
+                row.Q<SliderInt>("participant-volume")?.SetEnabled(!isMuted);
             }
         }
 
+        private bool HasRosterChanged(IReadOnlyList<CommParticipant> people)
+        {
+            if (_rosterIds.Count != people.Count || _participants.childCount != people.Count)
+            {
+                return true;
+            }
+
+            for (int i = 0; i < people.Count; i++)
+            {
+                if (!string.Equals(_rosterIds[i], people[i].PlayerId, System.StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// One participant, stacked rather than crammed onto a single line: the rail is 268px wide,
+        /// which is not enough for a name, a button and a slider side by side - the previous layout
+        /// left the mute button sitting on top of the name it belonged to.
+        /// </summary>
         private VisualElement BuildParticipantRow(CommParticipant participant)
         {
             VisualElement row = new VisualElement();
@@ -344,52 +420,93 @@ namespace ClanSystem.Presentation
             row.AddToClassList("voice-row");
             row.EnableInClassList("speaking", participant.IsSpeaking);
 
+            VisualElement head = new VisualElement();
+            head.AddToClassList("voice-row-head");
+
             VisualElement dot = new VisualElement();
             dot.name = "speaking-dot";
             dot.AddToClassList("speaking-dot");
             dot.EnableInClassList("active", participant.IsSpeaking);
-            row.Add(dot);
+            head.Add(dot);
 
-            VisualElement main = new VisualElement();
-            main.AddToClassList("row-main");
             Label name = new Label(participant.IsSelf
                 ? (participant.DisplayName ?? "You") + " (you)"
                 : participant.DisplayName ?? participant.PlayerId);
             name.AddToClassList("row-title");
-            main.Add(name);
-            row.Add(main);
+            name.AddToClassList("voice-row-name");
+            name.tooltip = name.text;
+            head.Add(name);
+            row.Add(head);
 
-            VisualElement actions = new VisualElement();
-            actions.name = "row-actions";
-            actions.AddToClassList("row-actions");
-            row.Add(actions);
-
-            if (!participant.IsSelf)
+            if (participant.IsSelf)
             {
-                string playerId = participant.PlayerId;
-
-                Button mute = new Button(() =>
-                {
-                    bool isMuted = _comm.IsPlayerMuted(playerId);
-                    _comm.SetPlayerMuted(playerId, !isMuted);
-                    RefreshParticipants();
-                })
-                {
-                    name = "participant-mute",
-                    text = _comm.IsPlayerMuted(playerId) ? "Unmute" : "Mute",
-                };
-                mute.AddToClassList("button");
-                mute.AddToClassList("mini");
-                actions.Add(mute);
-
-                SliderInt volume = new SliderInt(-50, 50) { value = participant.LocalVolume };
-                volume.AddToClassList("volume-slider");
-                volume.tooltip = "Volume";
-                volume.RegisterValueChangedCallback(evt => _comm.SetPlayerVolume(playerId, evt.newValue));
-                actions.Add(volume);
+                return row;
             }
 
+            string playerId = participant.PlayerId;
+            bool isMuted = _comm.IsPlayerMuted(playerId);
+
+            VisualElement controls = new VisualElement();
+            controls.name = "row-actions";
+            controls.AddToClassList("voice-row-controls");
+
+            Button mute = new Button(() =>
+            {
+                _comm.SetPlayerMuted(playerId, !_comm.IsPlayerMuted(playerId));
+                RefreshParticipants();
+            })
+            {
+                name = "participant-mute",
+                text = isMuted ? "Unmute" : "Mute",
+            };
+            mute.AddToClassList("button");
+            mute.AddToClassList("mini");
+            mute.AddToClassList("voice-mute");
+            mute.EnableInClassList("muted", isMuted);
+            mute.tooltip = isMuted ? "Unmute this player for you only" : "Mute this player for you only";
+            controls.Add(mute);
+
+            // Volume reads out as a number because the slider alone cannot say where its middle is,
+            // and a player who has turned somebody down wants to know by how much.
+            Label readout = new Label(FormatVolume(participant.LocalVolume));
+            readout.name = "participant-volume-value";
+            readout.AddToClassList("voice-volume-value");
+            readout.tooltip = _volumeHelp;
+
+            SliderInt volume = new SliderInt(-50, 50) { value = participant.LocalVolume };
+            volume.name = "participant-volume";
+            volume.AddToClassList("volume-slider");
+            volume.tooltip = _volumeHelp;
+            volume.RegisterValueChangedCallback(evt =>
+            {
+                _comm.SetPlayerVolume(playerId, evt.newValue);
+                readout.text = FormatVolume(evt.newValue);
+            });
+            volume.SetEnabled(!isMuted);
+            controls.Add(volume);
+            controls.Add(readout);
+
+            row.Add(controls);
             return row;
+        }
+
+        /// <summary>
+        /// Renders Vivox's local volume.
+        ///
+        /// The scale is an adjustment, not a level: -50 to 50 around a neutral 0, where 0 means
+        /// "leave this player as they are". The slider therefore rests in the middle at 0, and
+        /// reading that middle as 50% of some maximum would be wrong - the maximum is +50, which is
+        /// this player made louder than they recorded, not "full volume". The sign is shown for the
+        /// same reason: it is the difference from normal that matters.
+        /// </summary>
+        private static string FormatVolume(int value)
+        {
+            if (value == 0)
+            {
+                return "0";
+            }
+
+            return value > 0 ? "+" + value : value.ToString();
         }
 
         private void TransportStateChangedCallback()

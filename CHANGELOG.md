@@ -6,6 +6,17 @@ calendar releases.
 ## [Unreleased]
 
 ### Fixed
+- **The voice roster showed nobody until you joined voice yourself.** It was drawn only when the
+  local player was transmitting, so a player already in global voice was invisible to everyone who
+  had not yet pressed Join - which is the one moment that information is worth having. The rail now
+  shows the roster of the channel the client is *joined* to, and the client joins global on login.
+- **Participant events could be dropped.** The channel a Vivox callback reports is sometimes a name
+  and sometimes a full `sip:` URI; an exact comparison against the expected name missed the latter,
+  leaving the roster to be corrected by the next poll instead of by the event.
+- **A participant row could describe the wrong player.** Rows were rebuilt only when the roster's
+  size changed and updated by index otherwise, so somebody leaving as somebody else arrived left
+  every row pointing at its neighbour - and a Mute click muting a stranger. Rows are now diffed by
+  player id and order.
 - **Clan search no longer depends on an index being configured.** The tag lookup filtered on
   `dirPublic` and `dirTag` together, which asks for a compound index that is not in the table -
   a query is served by the index naming its keys, so the service rejected it and took the whole
@@ -22,6 +33,13 @@ calendar releases.
   out on a cold network where the HTTP services merely run slow.
 
 ### Changed
+- **The voice participant row is stacked, not crammed.** The rail is 268px: a name, a mute button
+  and a volume slider cannot all hold their minimum width on one line, and flexbox resolved that by
+  overlapping them - the mute button sat on top of the name it belonged to. Name on one line,
+  controls beneath. The volume readout shows the signed adjustment, because Vivox's local volume is
+  a change relative to normal (-50 to 50 around a neutral 0), not a percentage of some maximum.
+- **The bottom-right corner is reserved for the floating notification button.** The voice dock keeps
+  62px clear on its right, so the button's default resting place never covers Leave.
 - **Notifications left the tab bar for a floating button.** A draggable button sits in the
   bottom-right corner by default, snaps to the nearest corner on release with an elastic tween, and
   carries a red unread badge (`9+` past nine) as a child element, so the badge follows every drag

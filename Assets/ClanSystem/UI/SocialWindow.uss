@@ -680,12 +680,62 @@
     max-height: none;
 }
 
+/* Stacked, not side by side. The rail is 268px wide: a name, a mute button and a volume slider on
+   one line cannot all have their minimum width, and flexbox resolves that by letting them overlap
+   rather than by wrapping. Name on top, controls underneath, each with room to be read. */
 .voice-row {
-    padding: 5px 8px;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 6px 8px;
 }
 
 .voice-row.speaking {
     background-color: rgba(90, 205, 130, 0.14);
+}
+
+.voice-row-head {
+    flex-direction: row;
+    align-items: center;
+}
+
+/* Shrinks and ellipsises instead of pushing the controls out of the rail. */
+.voice-row-name {
+    flex-shrink: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.voice-row-controls {
+    flex-direction: row;
+    align-items: center;
+    /* Indented to the dot's width, so the controls read as belonging to the name above them. */
+    margin-left: 17px;
+    margin-top: 5px;
+}
+
+.voice-mute {
+    /* Fixed, because "Mute" and "Unmute" are different widths and the slider must not shuffle
+       sideways every time the state changes. */
+    width: 58px;
+    margin-left: 0;
+    padding: 3px 0;
+    -unity-text-align: middle-center;
+    flex-shrink: 0;
+}
+
+.voice-mute.muted {
+    background-color: rgb(120, 44, 52);
+    border-color: rgb(165, 62, 72);
+}
+
+.voice-volume-value {
+    width: 34px;
+    font-size: 10px;
+    color: rgb(140, 150, 172);
+    -unity-text-align: middle-right;
+    flex-shrink: 0;
 }
 
 .speaking-dot {
@@ -702,17 +752,29 @@
 }
 
 .volume-slider {
-    width: 68px;
-    margin-left: 6px;
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 40px;
+    margin-left: 8px;
+    margin-right: 4px;
+}
+
+.volume-slider:disabled {
+    opacity: 0.4;
 }
 
 /* ---------- Voice dock ---------- */
 
+/* The right padding reserves the bottom-right corner for the floating notification button, which
+   parks there by default. Reserved permanently rather than only while the button is in the corner:
+   the button is draggable, and a dock that reflowed every time it moved would be worse than a
+   dock that is simply 62px narrower. */
 .voice-dock {
     flex-direction: row;
     align-items: center;
     margin-top: 10px;
     padding-top: 10px;
+    padding-right: 62px;
     border-top-width: 1px;
     border-top-color: rgb(44, 52, 72);
     flex-shrink: 0;
