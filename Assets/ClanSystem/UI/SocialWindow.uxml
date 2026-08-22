@@ -45,7 +45,6 @@
                 <engine:Button name="tab-clan" text="Clan" class="tab" />
                 <engine:Button name="tab-chat" text="Chat" class="tab" />
                 <engine:Button name="tab-leaderboards" text="Leaderboards" class="tab" />
-                <engine:Button name="tab-notifications" text="Notifications" class="tab" />
             </engine:VisualElement>
 
             <engine:VisualElement name="content" class="content">
@@ -238,21 +237,6 @@
                     <engine:VisualElement name="lb-self" class="lb-self" />
                 </engine:VisualElement>
 
-                <!-- NOTIFICATIONS -->
-                <engine:VisualElement name="page-notifications" class="page">
-                    <engine:Label text="CLAN INVITATIONS" class="section-title" />
-                    <engine:ScrollView name="invites-list" class="list" />
-                    <engine:Label name="invites-empty" text="No pending invitations." class="empty-state" />
-
-                    <engine:Label text="FRIEND REQUESTS" class="section-title" />
-                    <engine:ScrollView name="requests-list" class="list" />
-                    <engine:Label name="requests-empty" text="No pending friend requests." class="empty-state" />
-
-                    <engine:Label text="JOIN REQUESTS" class="section-title" />
-                    <engine:ScrollView name="joinrequests-list" class="list" />
-                    <engine:Label name="joinrequests-empty" text="No pending join requests." class="empty-state" />
-                </engine:VisualElement>
-
             </engine:VisualElement>
 
             <engine:VisualElement name="busy-bar" class="busy-bar">
@@ -262,6 +246,56 @@
             <engine:VisualElement name="toast" class="toast">
                 <engine:Label name="toast-label" text="" class="toast-label" />
             </engine:VisualElement>
+        </engine:VisualElement>
+
+        <!-- NOTIFICATIONS: a floating button the player can drag, and the panel it opens.
+             Both sit on the window root rather than inside a page, so they survive tab switches
+             and draw above the content. The badge is a child of the button, which is what keeps
+             the two together through every drag and snap without a second position to maintain. -->
+        <engine:VisualElement name="notif-panel" class="notif-panel">
+            <engine:VisualElement class="notif-panel-head">
+                <engine:Label text="NOTIFICATIONS" class="section-title notif-panel-title" />
+                <engine:Button name="notif-close" text="Close" class="button ghost small-button" />
+            </engine:VisualElement>
+
+            <engine:VisualElement class="subtabs notif-tabs">
+                <engine:Button name="notif-tab-invites" class="subtab notif-tab">
+                    <engine:Label text="Invites" class="notif-tab-label" />
+                    <engine:Label name="notif-count-invites" text="" class="notif-tab-count" />
+                </engine:Button>
+                <engine:Button name="notif-tab-friends" class="subtab notif-tab">
+                    <engine:Label text="Friends" class="notif-tab-label" />
+                    <engine:Label name="notif-count-friends" text="" class="notif-tab-count" />
+                </engine:Button>
+                <engine:Button name="notif-tab-joins" class="subtab notif-tab">
+                    <engine:Label text="Join requests" class="notif-tab-label" />
+                    <engine:Label name="notif-count-joins" text="" class="notif-tab-count" />
+                </engine:Button>
+            </engine:VisualElement>
+
+            <engine:VisualElement name="notif-category-invites" class="notif-category">
+                <engine:ScrollView name="invites-list" class="list notif-list" />
+                <engine:Label name="invites-empty" text="No pending invitations." class="empty-state" />
+            </engine:VisualElement>
+
+            <engine:VisualElement name="notif-category-friends" class="notif-category">
+                <engine:ScrollView name="requests-list" class="list notif-list" />
+                <engine:Label name="requests-empty" text="No pending friend requests." class="empty-state" />
+            </engine:VisualElement>
+
+            <engine:VisualElement name="notif-category-joins" class="notif-category">
+                <engine:ScrollView name="joinrequests-list" class="list notif-list" />
+                <engine:Label name="joinrequests-empty" text="No pending join requests." class="empty-state" />
+            </engine:VisualElement>
+        </engine:VisualElement>
+
+        <engine:VisualElement name="notif-dock" class="notif-dock">
+            <engine:VisualElement class="icon icon-bell" picking-mode="Ignore">
+                <engine:VisualElement class="bell-dome" />
+                <engine:VisualElement class="bell-rim" />
+                <engine:VisualElement class="bell-clapper" />
+            </engine:VisualElement>
+            <engine:Label name="notif-badge" text="" class="notif-badge" picking-mode="Ignore" />
         </engine:VisualElement>
 
         <!-- Player profile popup -->

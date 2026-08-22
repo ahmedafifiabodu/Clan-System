@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using ClanSystem.CoreData;
 using ClanSystem.Services;
 using UnityEngine.UIElements;
@@ -6,14 +6,25 @@ using UnityEngine.UIElements;
 namespace ClanSystem.Presentation
 {
     /// <summary>
-    /// Clan invitations, incoming friend requests and pending join requests.
+    /// The three notification categories - clan invitations, incoming friend requests and pending
+    /// join requests - and the tab strip that switches between them.
+    ///
     /// Invitations are keyed by an id the server issued to this player, so accepting one on behalf
     /// of somebody else is not expressible through this UI or through the API it calls.
+    ///
+    /// The categories are the ones the social state already produces; nothing here is synthesised
+    /// to fill a tab. Looking at a category marks it read, which is what the badge on the floating
+    /// button counts down.
     /// </summary>
     public class NotificationsTabController
     {
+        private const string _selectedClass = "selected";
+        private const string _visibleClass = "visible";
+        private const int _categoryCount = 3;
+
         private readonly SocialCoordinator _coordinator;
         private readonly SocialWindowController _window;
+        private readonly NotificationInbox _inbox;
 
         private readonly ScrollView _invitesList;
         private readonly ScrollView _requestsList;
@@ -22,10 +33,17 @@ namespace ClanSystem.Presentation
         private readonly Label _requestsEmpty;
         private readonly Label _joinRequestsEmpty;
 
-        public NotificationsTabController(VisualElement root, SocialCoordinator coordinator, SocialWindowController window)
+        private readonly Button[] _tabs = new Button[_categoryCount];
+        private readonly VisualElement[] _categories = new VisualElement[_categoryCount];
+        private readonly Label[] _counts = new Label[_categoryCount];
+
+        private NotificationCategory _selected = NotificationCategory.ClanInvites;
+
+        public NotificationsTabController(VisualElement root, SocialCoordinator coordinator, SocialWindowController window, NotificationInbox inbox)
         {
             _coordinator = coordinator;
             _window = window;
+            _inbox = inbox;
 
             _invitesList = root.Q<ScrollView>("invites-list");
             _requestsList = root.Q<ScrollView>("requests-list");
@@ -34,19 +52,102 @@ namespace ClanSystem.Presentation
             _requestsEmpty = root.Q<Label>("requests-empty");
             _joinRequestsEmpty = root.Q<Label>("joinrequests-empty");
 
+            _tabs[0] = root.Q<Button>("notif-tab-invites");
+            _tabs[1] = root.Q<Button>("notif-tab-friends");
+            _tabs[2] = root.Q<Button>("notif-tab-joins");
+
+            _categories[0] = root.Q<VisualElement>("notif-category-invites");
+            _categories[1] = root.Q<VisualElement>("notif-category-friends");
+            _categories[2] = root.Q<VisualElement>("notif-category-joins");
+
+            _counts[0] = root.Q<Label>("notif-count-invites");
+            _counts[1] = root.Q<Label>("notif-count-friends");
+            _counts[2] = root.Q<Label>("notif-count-joins");
+
+            for (int i = 0; i < _categoryCount; i++)
+            {
+                if (_tabs[i] == null)
+                {
+                    continue;
+                }
+
+                NotificationCategory category = (NotificationCategory)i;
+                _tabs[i].clicked += () => OnButtonClick_SelectCategory(category);
+            }
+
             _coordinator.State.NotificationsChanged += NotificationsChangedCallback;
             _coordinator.State.FriendsChanged += NotificationsChangedCallback;
+            if (_inbox != null)
+            {
+                _inbox.Changed += InboxChangedCallback;
+            }
+
+            SelectCategory(_selected, false);
         }
 
         public void Dispose()
         {
             _coordinator.State.NotificationsChanged -= NotificationsChangedCallback;
             _coordinator.State.FriendsChanged -= NotificationsChangedCallback;
+            if (_inbox != null)
+            {
+                _inbox.Changed -= InboxChangedCallback;
+            }
         }
 
+        /// <summary>Called when the panel opens: refresh the rows and read the visible category.</summary>
         public void Activate()
         {
             Rebuild();
+            SelectCategory(_selected, true);
+        }
+
+        /// <summary>
+        /// Shows one category. The switch is a class toggle rather than a rebuild, so the fade in
+        /// the stylesheet has something continuous to animate and the scroll positions of the other
+        /// two categories survive.
+        /// </summary>
+        public void SelectCategory(NotificationCategory category, bool markSeen)
+        {
+            _selected = category;
+            for (int i = 0; i < _categoryCount; i++)
+            {
+                bool isSelected = i == (int)category;
+                _tabs[i]?.EnableInClassList(_selectedClass, isSelected);
+                _categories[i]?.EnableInClassList(_visibleClass, isSelected);
+            }
+
+            if (markSeen)
+            {
+                _inbox?.MarkSeen(category);
+            }
+
+            RefreshCounts();
+        }
+
+        /// <summary>
+        /// Per-tab unread counts. They come from the same inbox as the badge, so a tab and the
+        /// button can never disagree about how much is unread.
+        /// </summary>
+        private void RefreshCounts()
+        {
+            if (_inbox == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < _categoryCount; i++)
+            {
+                Label count = _counts[i];
+                if (count == null)
+                {
+                    continue;
+                }
+
+                int unread = _inbox.UnreadCount((NotificationCategory)i);
+                count.text = unread > 9 ? "9+" : unread.ToString();
+                count.EnableInClassList(_visibleClass, unread > 0);
+            }
         }
 
         private void Rebuild()
@@ -159,9 +260,20 @@ namespace ClanSystem.Presentation
                 : "Officers and the leader see join requests here.";
         }
 
+        private void OnButtonClick_SelectCategory(NotificationCategory category)
+        {
+            SelectCategory(category, true);
+        }
+
         private void NotificationsChangedCallback()
         {
             Rebuild();
+            RefreshCounts();
+        }
+
+        private void InboxChangedCallback()
+        {
+            RefreshCounts();
         }
     }
 }

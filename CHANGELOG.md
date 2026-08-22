@@ -3,6 +3,33 @@
 All notable changes to the Clan System project. Dates reflect when work happened in-session, not
 calendar releases.
 
+## [Unreleased]
+
+### Fixed
+- **Clan search no longer depends on an index being configured.** The tag lookup filtered on
+  `dirPublic` and `dirTag` together, which asks for a compound index that is not in the table -
+  a query is served by the index naming its keys, so the service rejected it and took the whole
+  search down with it. The tag query now filters on `dirTag` alone and checks public-ness on the
+  returned summary. When Cloud Save reports `query does not use an index` at all, browse and
+  search fall back to reading the tag reservation shards (`index-t<0..15>`), which are already an
+  exact roster of live clans, and rank the results in memory exactly as the indexed path does.
+  Creating the indexes turns the fast path back on with no code change.
+- **Cloud Save failures inside Cloud Code report their cause.** An axios rejection thrown out of a
+  script reaches the client as `problems/invocation/axios`, a discriminator the SDK does not know,
+  so every failure degraded to "Unknown". Directory queries now catch their own failure and return
+  the status, the service's detail and the index they wanted.
+- **Vivox login is retried while the failure is a transport one.** The connector handshake times
+  out on a cold network where the HTTP services merely run slow.
+
+### Changed
+- **Notifications left the tab bar for a floating button.** A draggable button sits in the
+  bottom-right corner by default, snaps to the nearest corner on release with an elastic tween, and
+  carries a red unread badge (`9+` past nine) as a child element, so the badge follows every drag
+  and snap. Pressing it opens a panel with the three existing categories - clan invitations,
+  friend requests and join requests - as tabs; looking at a category marks it read.
+- **Status toasts moved to the top centre**, positioned by translation rather than fixed offsets so
+  they hold their place at any window size, over the header's empty middle.
+
 ## [1.0.0] - 2026-08-22
 
 First tagged release. Installable as a UPM package:

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using ClanSystem.CoreData;
 using ClanSystem.Services;
@@ -31,6 +31,8 @@ namespace ClanSystem.Presentation
         private readonly ChatTabController _chatTab;
         private readonly LeaderboardsTabController _leaderboardsTab;
         private readonly NotificationsTabController _notificationsTab;
+        private readonly NotificationDockController _notificationDock;
+        private readonly NotificationInbox _notificationInbox;
         private readonly VoiceBarController _voiceBar;
 
         private readonly Button[] _tabButtons;
@@ -42,7 +44,6 @@ namespace ClanSystem.Presentation
         private readonly VisualElement _busyBar;
         private readonly VisualElement _toast;
         private readonly Label _toastLabel;
-        private readonly Button _notificationsButton;
 
         private int _busyCount;
         private IVisualElementScheduledItem _toastTimer;
@@ -67,7 +68,6 @@ namespace ClanSystem.Presentation
                 root.Q<Button>("tab-clan"),
                 root.Q<Button>("tab-chat"),
                 root.Q<Button>("tab-leaderboards"),
-                root.Q<Button>("tab-notifications"),
             };
 
             _pages = new VisualElement[]
@@ -76,16 +76,18 @@ namespace ClanSystem.Presentation
                 root.Q<VisualElement>("page-clan"),
                 root.Q<VisualElement>("page-chat"),
                 root.Q<VisualElement>("page-leaderboards"),
-                root.Q<VisualElement>("page-notifications"),
             };
-
-            _notificationsButton = _tabButtons[4];
 
             _friendsTab = new FriendsTabController(root, coordinator, this, _popup);
             _clanTab = new ClanTabController(root, coordinator, this, _popup);
             _chatTab = new ChatTabController(root, coordinator, this);
             _leaderboardsTab = new LeaderboardsTabController(root, coordinator, this);
-            _notificationsTab = new NotificationsTabController(root, coordinator, this);
+
+            // Notifications left the tab bar: they now live behind a floating button, so the inbox
+            // has to exist before the panel that reads from it and the button that counts it.
+            _notificationInbox = new NotificationInbox(coordinator.State, coordinator.PlayerId);
+            _notificationsTab = new NotificationsTabController(root, coordinator, this, _notificationInbox);
+            _notificationDock = new NotificationDockController(root, _notificationInbox, _notificationsTab);
             _voiceBar = new VoiceBarController(root, coordinator, this);
 
             for (int i = 0; i < _tabButtons.Length; i++)
@@ -110,7 +112,6 @@ namespace ClanSystem.Presentation
 
             _coordinator.StatusReported += StatusReportedCallback;
             _coordinator.State.ClanChanged += ClanChangedCallback;
-            _coordinator.State.NotificationsChanged += NotificationsChangedCallback;
 
             SelectTab(1);
             RefreshHeader();
@@ -120,13 +121,14 @@ namespace ClanSystem.Presentation
         {
             _coordinator.StatusReported -= StatusReportedCallback;
             _coordinator.State.ClanChanged -= ClanChangedCallback;
-            _coordinator.State.NotificationsChanged -= NotificationsChangedCallback;
 
             _friendsTab.Dispose();
             _clanTab.Dispose();
             _chatTab.Dispose();
             _leaderboardsTab.Dispose();
             _notificationsTab.Dispose();
+            _notificationDock.Dispose();
+            _notificationInbox.Dispose();
             _voiceBar.Dispose();
         }
 
@@ -216,9 +218,6 @@ namespace ClanSystem.Presentation
                 case 3:
                     _leaderboardsTab.Activate();
                     break;
-                case 4:
-                    _notificationsTab.Activate();
-                    break;
             }
         }
 
@@ -288,12 +287,6 @@ namespace ClanSystem.Presentation
         private void ClanChangedCallback()
         {
             RefreshHeader();
-        }
-
-        private void NotificationsChangedCallback()
-        {
-            int pending = _coordinator.State.PendingNotificationCount;
-            _notificationsButton.text = pending > 0 ? $"Notifications ({pending})" : "Notifications";
         }
     }
 }

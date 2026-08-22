@@ -1165,21 +1165,33 @@
     display: none;
 }
 
+/* Top centre, and centred by translation rather than by a hardcoded offset, so it holds its
+   position at every window width. It sits over the header's empty middle - the identity block is
+   left-aligned and the actions are right-aligned - so nothing it covers is interactive.
+   Visibility rather than display keeps the element laid out, which is what lets the slide and fade
+   actually run; `display: none` has no geometry to animate from. */
 .toast {
     position: absolute;
-    bottom: 18px;
-    right: 18px;
+    top: 12px;
+    left: 50%;
+    translate: -50% -14px;
     max-width: 420px;
     padding: 10px 14px;
     border-radius: 8px;
     background-color: rgb(32, 40, 58);
     border-width: 1px;
     border-color: rgb(70, 140, 235);
-    display: none;
+    opacity: 0;
+    visibility: hidden;
+    transition-property: opacity, translate;
+    transition-duration: 180ms, 220ms;
+    transition-timing-function: ease-out, ease-out-back;
 }
 
 .toast.visible {
-    display: flex;
+    opacity: 1;
+    visibility: visible;
+    translate: -50% 0;
 }
 
 .toast.error {
@@ -1235,4 +1247,201 @@
     flex-direction: row;
     flex-wrap: wrap;
     margin-top: 12px;
+}
+
+
+/* ---------- Notification dock ---------- */
+
+/* The floating button. Positioned in code from the window's own rect - never from fixed pixels -
+   so it lands in the same visual corner at any resolution or aspect ratio, and is re-clamped when
+   the window resizes. Its transform is animated, so `left`/`top` stay the authoritative position
+   and the elastic motion rides on top of them without fighting the layout. */
+/* Hidden until the player is signed in - SocialWindowController only exists past that point,
+   and it is what turns this on. Without the default-hidden state the button sits over the
+   sign-in screen, unowned by anything, well before there is a session for it to represent. */
+.notif-dock {
+    position: absolute;
+    width: 56px;
+    height: 56px;
+    border-radius: 28px;
+    background-color: rgb(38, 44, 62);
+    border-width: 1px;
+    border-color: rgb(70, 140, 235);
+    align-items: center;
+    justify-content: center;
+    display: none;
+    transition-property: scale, background-color;
+    transition-duration: 120ms;
+    transition-timing-function: ease-out;
+}
+
+.notif-dock:hover {
+    background-color: rgb(48, 56, 78);
+}
+
+.notif-dock.pressed {
+    scale: 0.92 0.92;
+}
+
+.notif-dock.dragging {
+    scale: 1.06 1.06;
+    border-color: rgb(120, 190, 255);
+}
+
+.icon-bell {
+    width: 22px;
+    height: 24px;
+    align-items: center;
+}
+
+.bell-dome {
+    width: 18px;
+    height: 15px;
+    border-top-left-radius: 9px;
+    border-top-right-radius: 9px;
+    border-bottom-left-radius: 2px;
+    border-bottom-right-radius: 2px;
+    background-color: rgb(226, 234, 250);
+    margin-top: 2px;
+}
+
+.bell-rim {
+    width: 22px;
+    height: 3px;
+    border-radius: 2px;
+    background-color: rgb(226, 234, 250);
+    margin-top: 1px;
+}
+
+.bell-clapper {
+    width: 6px;
+    height: 4px;
+    border-bottom-left-radius: 3px;
+    border-bottom-right-radius: 3px;
+    background-color: rgb(226, 234, 250);
+    margin-top: 1px;
+}
+
+/* Child of the button, so it inherits every drag and every snap with no second position to keep
+   in step. Pulled outside the button's own bounds by a negative offset. */
+.notif-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 22px;
+    height: 22px;
+    border-radius: 11px;
+    background-color: rgb(206, 54, 62);
+    border-width: 2px;
+    border-color: rgb(16, 18, 26);
+    color: rgb(255, 245, 245);
+    font-size: 11px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    padding: 0 4px;
+    display: none;
+}
+
+.notif-badge.visible {
+    display: flex;
+}
+
+/* ---------- Notification panel ---------- */
+
+/* Anchored to the floating button from code - left, top and height are all written there - so
+   the panel travels with the button instead of living at a corner of its own. */
+.notif-panel {
+    position: absolute;
+    width: 420px;
+    max-width: 92%;
+    padding: 14px;
+    border-radius: 12px;
+    background-color: rgb(24, 28, 40);
+    border-width: 1px;
+    border-color: rgb(56, 64, 86);
+    opacity: 0;
+    visibility: hidden;
+    scale: 0.94 0.94;
+    transform-origin: bottom right;
+    transition-property: opacity, scale;
+    transition-duration: 140ms, 200ms;
+    transition-timing-function: ease-out, ease-out-back;
+}
+
+.notif-panel.open {
+    opacity: 1;
+    visibility: visible;
+    scale: 1 1;
+}
+
+.notif-panel-head {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.notif-panel-title {
+    margin-bottom: 0;
+}
+
+.notif-tabs {
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+
+.notif-tab {
+    flex-direction: row;
+    align-items: center;
+}
+
+.notif-tab-label {
+    font-size: 12px;
+    color: rgb(200, 210, 228);
+}
+
+.notif-tab.selected .notif-tab-label {
+    color: rgb(240, 246, 255);
+}
+
+.notif-tab-count {
+    min-width: 18px;
+    height: 18px;
+    margin-left: 6px;
+    border-radius: 9px;
+    background-color: rgb(206, 54, 62);
+    color: rgb(255, 245, 245);
+    font-size: 10px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    padding: 0 3px;
+    display: none;
+}
+
+.notif-tab-count.visible {
+    display: flex;
+}
+
+/* One category is laid out at a time; the fade is what makes the switch read as a transition
+   rather than a swap. */
+.notif-category {
+    flex-grow: 1;
+    display: none;
+    opacity: 0;
+    transition-property: opacity;
+    transition-duration: 140ms;
+}
+
+.notif-category.visible {
+    display: flex;
+    opacity: 1;
+}
+
+.notif-list {
+    max-height: none;
+    flex-grow: 1;
+}
+
+.small-button {
+    padding: 3px 10px;
+    font-size: 11px;
 }

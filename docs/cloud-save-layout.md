@@ -92,6 +92,17 @@ Or with the UGS CLI:
 ugs cloud-save index create --file docs/cloud-save-indexes.json --project-id <id> --environment-name <env>
 ```
 
+### When the indexes are missing
+
+Browse and search still work. Cloud Save answers an unindexed query with
+`HTTP 400: query does not use an index`, and `SOCIAL_ClanQuery` treats that one status as a
+configuration state rather than an outage: it reads the tag reservation shards instead, which
+already map `TAG -> clanId` for every live clan, loads those clans' summaries and ranks them in
+memory the same way the index would have. Same results, same order; O(clans) per search instead of
+O(page), capped at `directoryScanMax` (500) with a warning in the Cloud Code log when it truncates.
+
+The fallback is a safety net, not a plan. Create the indexes.
+
 > **Only data written after an index is created is queryable.** A clan written before its index
 > existed is invisible to browse until something rewrites it, and nothing does. Create the indexes
 > before the first clan.

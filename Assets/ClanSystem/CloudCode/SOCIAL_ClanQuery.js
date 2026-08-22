@@ -9,7 +9,12 @@ const CONFIG = {
   directoryLimitMax: 50,
   activityLimitMax: 50,
   playersInfoMax: 50,
+  directoryScanMax: 500,
 };
+
+// Mirrors the tag shard count in SOCIAL_ClanCommand. The two must agree: a shard this script does
+// not read is a set of clans the index-free fallback cannot see.
+const DIRECTORY_SHARD_COUNT = 16;
 
 const ROLE_RANK = { Owner: 3, Officer: 2, Member: 1 };
 
@@ -54,6 +59,97 @@ function describeApiError(err) {
   return `HTTP ${response.status}${body ? `: ${body}` : ""}`;
 }
 
+/// True when Cloud Save refused a query because no index serves it.
+///
+/// The service answers `HTTP 400: query does not use an index`, which is a configuration state -
+/// the indexes in docs/cloud-save-indexes.json were never created in this environment - rather
+/// than an outage. It is the one failure the caller can route around, so it is detected by the
+/// status *and* the wording; a 400 that says anything else stays a hard failure.
+function isMissingIndexError(err) {
+  const response = err && err.response;
+  if (!response || response.status !== 400) return false;
+
+  let body = response.data;
+  if (body && typeof body === "object") body = JSON.stringify(body);
+  return typeof body === "string" && body.toLowerCase().indexOf("index") >= 0;
+}
+
+/// Reads every live clan's summary without touching an index.
+///
+/// The tag reservation shards are the one enumerable list of clans the system already keeps:
+/// `SOCIAL_ClanCommand` writes `TAG -> clanId` into `index-t<0..15>` when a clan is created and
+/// deletes it on disband, under the same write lock that makes tags unique. Reading them back is
+/// therefore an exact roster, not a second copy that can drift, which is what makes this safe as
+/// a fallback rather than a parallel directory.
+///
+/// This is O(clans) per search and exists only so browse works in an environment whose indexes
+/// were never created. `directoryScanMax` caps the work; past it the scan is truncated and the
+/// caller is told, because a silently short list looks like a complete one.
+async function scanDirectory(api, projectId, logger) {
+  const shards = [];
+  for (let i = 0; i < DIRECTORY_SHARD_COUNT; i++) {
+    shards.push(readPrivate(api, projectId, `index-t${i}`, "tags").then((item) => item.value));
+  }
+
+  const values = await Promise.all(shards);
+  const clanIds = [];
+  for (let i = 0; i < values.length; i++) {
+    const map = (values[i] && values[i].map) || {};
+    for (const tag of Object.keys(map)) {
+      if (map[tag]) clanIds.push(map[tag]);
+    }
+  }
+
+  let isTruncated = false;
+  if (clanIds.length > CONFIG.directoryScanMax) {
+    clanIds.length = CONFIG.directoryScanMax;
+    isTruncated = true;
+    if (logger) logger.warning(`Directory scan truncated at ${CONFIG.directoryScanMax} clans.`);
+  }
+
+  const summaries = await Promise.all(clanIds.map(
+    (id) => readPrivate(api, projectId, clanId_(id), "summary").then((item) => item.value)));
+
+  const list = [];
+  for (let i = 0; i < summaries.length; i++) {
+    if (summaries[i] && summaries[i].clanId) list.push(summaries[i]);
+  }
+
+  return { clans: list, isTruncated: isTruncated };
+}
+
+/// Applies the search the index would have applied, over an already-loaded list.
+///
+/// Ranking matches the indexed path exactly - exact tag hits first, then name prefixes, both by
+/// score - so which path served a search is invisible to the player.
+function filterScanned(clans, query, onlyPublic) {
+  const byScore = (a, b) => (b.score || 0) - (a.score || 0);
+  const visible = [];
+  for (let i = 0; i < clans.length; i++) {
+    if (onlyPublic && clans[i].isPublic === false) continue;
+    visible.push(clans[i]);
+  }
+
+  if (query.length === 0) {
+    visible.sort(byScore);
+    return visible;
+  }
+
+  const tagHits = [];
+  const nameHits = [];
+  for (let i = 0; i < visible.length; i++) {
+    const summary = visible[i];
+    const tag = (summary.tag || "").toUpperCase();
+    const nameUpper = summary.nameUpper || (summary.name || "").toUpperCase();
+    if (tag === query) tagHits.push(summary);
+    else if (nameUpper.indexOf(query) === 0) nameHits.push(summary);
+  }
+
+  tagHits.sort(byScore);
+  nameHits.sort(byScore);
+  return tagHits.concat(nameHits);
+}
+
 /// Runs one directory query and returns the clan summaries it matched.
 ///
 /// `fields` is ANDed by the service and also decides the sort, so every read path here states its
@@ -78,6 +174,7 @@ async function queryDirectory(api, projectId, label, fields, limit, offset) {
     // environment - and the query alone does not say which one it was.
     const wrapped = new Error(`Directory query '${label}' failed - ${describeApiError(err)}`);
     wrapped.isDirectoryQueryError = true;
+    wrapped.isMissingIndex = isMissingIndexError(err);
     throw wrapped;
   }
 
@@ -231,6 +328,7 @@ module.exports = async ({ params, context, logger }) => {
       const visibility = onlyPublic ? [{ key: "dirPublic", op: "EQ", value: 1, asc: true }] : [];
 
       let matches;
+      let scannedTotal = -1;
       try {
         if (query.length === 0) {
           // Browse: no term, so the whole index is the result set, ordered by score.
@@ -293,18 +391,36 @@ module.exports = async ({ params, context, logger }) => {
         }
       } catch (err) {
         if (!err || !err.isDirectoryQueryError) throw err;
-        if (logger) logger.error(err.message);
-        return fail("SERVICE_UNAVAILABLE", err.message);
+        if (!err.isMissingIndex) {
+          if (logger) logger.error(err.message);
+          return fail("SERVICE_UNAVAILABLE", err.message);
+        }
+
+        // No index in this environment. Browse is still answerable from the tag shards, so the
+        // player gets a working directory instead of an error, and the log says which it was.
+        if (logger) logger.warning(`${err.message}. Falling back to a full directory scan.`);
+        try {
+          const scan = await scanDirectory(api, projectId, logger);
+          const ranked = filterScanned(scan.clans, query, onlyPublic);
+          scannedTotal = ranked.length;
+          matches = ranked.slice(offset, offset + limit);
+        } catch (scanError) {
+          // The fallback is the last thing standing, so its own failure is reported as a refusal.
+          // Letting it throw would leave the client with an invocation error and no cause again.
+          const detail = describeApiError(scanError);
+          if (logger) logger.error(`Directory scan failed - ${detail}`);
+          return fail("SERVICE_UNAVAILABLE", `Could not read the clan directory - ${detail}`);
+        }
       }
 
-      // The service does not report how many rows a query could have returned, so `total` is what
-      // the caller has actually been shown. `hasMore` is the honest signal for paging.
+      // A scan knows the real size of the result set; an indexed query does not, so `total` there
+      // is what the caller has actually been shown and `hasMore` is the honest paging signal.
       return ok({
         clans: matches,
-        total: offset + matches.length,
+        total: scannedTotal >= 0 ? scannedTotal : offset + matches.length,
         offset: offset,
         limit: limit,
-        hasMore: matches.length >= limit,
+        hasMore: scannedTotal >= 0 ? offset + matches.length < scannedTotal : matches.length >= limit,
       });
     }
 
