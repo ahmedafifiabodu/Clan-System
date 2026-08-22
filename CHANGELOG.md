@@ -3,7 +3,10 @@
 All notable changes to the Clan System project. Dates reflect when work happened in-session, not
 calendar releases.
 
-## [Unreleased]
+## [1.0.2] - 2026-08-22
+
+The clan search fix and the floating notification button below first shipped in 1.0.1, which was cut
+without its changelog entries; 1.0.2 adds the voice roster and volume work on top.
 
 ### Fixed
 - **The voice roster showed nobody until you joined voice yourself.** It was drawn only when the
@@ -36,8 +39,12 @@ calendar releases.
 - **The voice participant row is stacked, not crammed.** The rail is 268px: a name, a mute button
   and a volume slider cannot all hold their minimum width on one line, and flexbox resolved that by
   overlapping them - the mute button sat on top of the name it belonged to. Name on one line,
-  controls beneath. The volume readout shows the signed adjustment, because Vivox's local volume is
-  a change relative to normal (-50 to 50 around a neutral 0), not a percentage of some maximum.
+  controls beneath.
+- **Per-player volume reads 0-100%.** Vivox's scale is an adjustment rather than a level - -50 to 50
+  around a neutral 0 - which is correct and unreadable: nobody outside the SDK expects a volume
+  control whose middle is zero. The UI runs 0 to 100 with 50% as that player's own loudness, one
+  addition away from what the transport is given, so the ranges are the same width and no setting is
+  lost in translation.
 - **The bottom-right corner is reserved for the floating notification button.** The voice dock keeps
   62px clear on its right, so the button's default resting place never covers Leave.
 - **Notifications left the tab bar for a floating button.** A draggable button sits in the

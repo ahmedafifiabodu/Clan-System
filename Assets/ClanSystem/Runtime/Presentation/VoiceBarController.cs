@@ -21,11 +21,21 @@ namespace ClanSystem.Presentation
         private const int _meterIntervalMs = 50;
 
         /// <summary>
-        /// Explains the volume scale where the player can find it. Vivox's local volume adjusts a
-        /// player relative to normal rather than setting a loudness, so a centred slider reading 0
-        /// is the correct resting state and needs saying once.
+        /// Explains the volume scale where the player can find it. The slider adjusts one player
+        /// for the local listener only, and the midpoint is that player's own recorded loudness
+        /// rather than silence, which is the part worth saying out loud.
         /// </summary>
-        private const string _volumeHelp = "Louder or quieter, for you only. 0 leaves them at normal volume.";
+        private const string _volumeHelp = "Volume for you only. 50% is their normal loudness.";
+
+        /// <summary>
+        /// Offset between what the player sees and what Vivox is given.
+        ///
+        /// Vivox's local volume is an adjustment, not a level: -50 to 50 around a neutral 0. That
+        /// scale is correct and unreadable - nobody outside the SDK expects a volume control whose
+        /// middle is zero - so the UI runs 0 to 100 with 50 as normal and the two are one addition
+        /// apart. The ranges are the same width, so no value is lost in either direction.
+        /// </summary>
+        private const int _volumeOffset = 50;
 
         /// <summary>
         /// Meter smoothing per tick, 0 to 1. Raw audio energy is spiky enough to strobe; rising
@@ -468,18 +478,18 @@ namespace ClanSystem.Presentation
 
             // Volume reads out as a number because the slider alone cannot say where its middle is,
             // and a player who has turned somebody down wants to know by how much.
-            Label readout = new Label(FormatVolume(participant.LocalVolume));
+            Label readout = new Label(FormatVolume(ToDisplayVolume(participant.LocalVolume)));
             readout.name = "participant-volume-value";
             readout.AddToClassList("voice-volume-value");
             readout.tooltip = _volumeHelp;
 
-            SliderInt volume = new SliderInt(-50, 50) { value = participant.LocalVolume };
+            SliderInt volume = new SliderInt(0, 100) { value = ToDisplayVolume(participant.LocalVolume) };
             volume.name = "participant-volume";
             volume.AddToClassList("volume-slider");
             volume.tooltip = _volumeHelp;
             volume.RegisterValueChangedCallback(evt =>
             {
-                _comm.SetPlayerVolume(playerId, evt.newValue);
+                _comm.SetPlayerVolume(playerId, ToTransportVolume(evt.newValue));
                 readout.text = FormatVolume(evt.newValue);
             });
             volume.SetEnabled(!isMuted);
@@ -490,23 +500,19 @@ namespace ClanSystem.Presentation
             return row;
         }
 
-        /// <summary>
-        /// Renders Vivox's local volume.
-        ///
-        /// The scale is an adjustment, not a level: -50 to 50 around a neutral 0, where 0 means
-        /// "leave this player as they are". The slider therefore rests in the middle at 0, and
-        /// reading that middle as 50% of some maximum would be wrong - the maximum is +50, which is
-        /// this player made louder than they recorded, not "full volume". The sign is shown for the
-        /// same reason: it is the difference from normal that matters.
-        /// </summary>
-        private static string FormatVolume(int value)
+        private static int ToDisplayVolume(int transportVolume)
         {
-            if (value == 0)
-            {
-                return "0";
-            }
+            return Mathf.Clamp(transportVolume + _volumeOffset, 0, 100);
+        }
 
-            return value > 0 ? "+" + value : value.ToString();
+        private static int ToTransportVolume(int displayVolume)
+        {
+            return Mathf.Clamp(displayVolume - _volumeOffset, -50, 50);
+        }
+
+        private static string FormatVolume(int displayVolume)
+        {
+            return displayVolume + "%";
         }
 
         private void TransportStateChangedCallback()
