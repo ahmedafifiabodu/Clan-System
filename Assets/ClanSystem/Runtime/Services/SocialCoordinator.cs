@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -189,7 +189,26 @@ namespace ClanSystem.Services
             System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
             try
             {
-                SocialResult voice = await _communication.LoginAsync(_auth.PlayerId, _auth.PlayerName, Lifetime);
+                // The voice transport reaches its own service over its own connection, and that first
+                // handshake times out on a cold or congested network far more often than the HTTP
+                // services do. A timeout is a slow start rather than a refusal, so it is retried;
+                // anything else the server actually decided is reported on the first answer.
+                int attempts = Mathf.Max(1, _config.RequestRetryCount + 1);
+                SocialResult voice = SocialResult.Success();
+                for (int attempt = 0; attempt < attempts; attempt++)
+                {
+                    voice = await _communication.LoginAsync(_auth.PlayerId, _auth.PlayerName, Lifetime);
+                    if (voice.IsSuccess || voice.Error != SocialErrorCode.ServiceUnavailable)
+                    {
+                        break;
+                    }
+
+                    if (attempt < attempts - 1)
+                    {
+                        await Task.Delay(1000 * (attempt + 1), Lifetime);
+                    }
+                }
+
                 if (!voice.IsSuccess)
                 {
                     Report(voice.Message, true);

@@ -33,6 +33,7 @@ namespace ClanSystem.Services
             { "NOT_A_MEMBER", SocialErrorCode.NotAMember },
             { "OWNER_MUST_TRANSFER", SocialErrorCode.OwnerMustTransfer },
             { "RATE_LIMITED", SocialErrorCode.RateLimited },
+            { "SERVICE_UNAVAILABLE", SocialErrorCode.ServiceUnavailable },
             { "EMPTY_MESSAGE", SocialErrorCode.EmptyMessage },
             { "DUPLICATE_MESSAGE", SocialErrorCode.DuplicateMessage },
             { "INVALID_SCORE", SocialErrorCode.InvalidScore },

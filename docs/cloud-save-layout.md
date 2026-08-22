@@ -81,6 +81,11 @@ Dashboard → Cloud Save → **Configure Indexes**. All are **Game Data / Privat
 | `clan_by_name` | `dirPublic` asc, `dirNameUpper` asc | Name prefix search |
 | `clan_by_tag` | `dirTag` asc | Exact tag lookup |
 
+A query is served by the index whose keys it names, so the tag lookup filters on `dirTag` alone -
+adding `dirPublic` to it would ask for a compound index that is not in the table above, and the
+service rejects the whole request rather than ignoring the extra key. Tag hits are filtered for
+public-ness in the script instead, which costs a comparison rather than one of the 20 indexed keys.
+
 Or with the UGS CLI:
 
 ```bash

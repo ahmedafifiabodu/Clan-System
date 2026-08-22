@@ -36,6 +36,24 @@ async function readPlayer(api, projectId, playerId, key) {
 }
 
 
+/// Turns a Cloud Save failure into something a player-facing message can carry.
+///
+/// The service errors arrive as axios rejections, and an axios rejection thrown out of a Cloud Code
+/// script is reported to the client as `problems/invocation/axios` - a discriminator the client SDK
+/// does not know, so the whole failure degrades to "Unknown" with no cause attached. Reading the
+/// status and body here is what keeps a missing index distinguishable from an outage.
+function describeApiError(err) {
+  const response = err && err.response;
+  if (!response) return err && err.message ? err.message : "Unknown error.";
+
+  let body = response.data;
+  if (body && typeof body === "object") {
+    body = body.detail || body.title || body.message || JSON.stringify(body);
+  }
+
+  return `HTTP ${response.status}${body ? `: ${body}` : ""}`;
+}
+
 /// Runs one directory query and returns the clan summaries it matched.
 ///
 /// `fields` is ANDed by the service and also decides the sort, so every read path here states its
@@ -46,13 +64,22 @@ async function readPlayer(api, projectId, playerId, key) {
 /// directly instead - `returnKeys` is documented as a projection but not documented to cover keys
 /// the index does not itself carry, so the fallback is what makes browse correct either way. If it
 /// fires on every row, the symptom is a slow browse rather than a wrong one.
-async function queryDirectory(api, projectId, fields, limit, offset) {
-  const res = await api.queryPrivateCustomData(projectId, {
-    fields: fields,
-    returnKeys: DIRECTORY_KEYS,
-    offset: offset,
-    limit: limit,
-  });
+async function queryDirectory(api, projectId, label, fields, limit, offset) {
+  let res;
+  try {
+    res = await api.queryPrivateCustomData(projectId, {
+      fields: fields,
+      returnKeys: DIRECTORY_KEYS,
+      offset: offset,
+      limit: limit,
+    });
+  } catch (err) {
+    // Named after the index it needs, because the usual cause is that index not existing in this
+    // environment - and the query alone does not say which one it was.
+    const wrapped = new Error(`Directory query '${label}' failed - ${describeApiError(err)}`);
+    wrapped.isDirectoryQueryError = true;
+    throw wrapped;
+  }
 
   const results = (res && res.data && res.data.results) || [];
   const pending = [];
@@ -204,56 +231,70 @@ module.exports = async ({ params, context, logger }) => {
       const visibility = onlyPublic ? [{ key: "dirPublic", op: "EQ", value: 1, asc: true }] : [];
 
       let matches;
-      if (query.length === 0) {
-        // Browse: no term, so the whole index is the result set, ordered by score.
-        // `dirScore GE 0` is a filter that excludes nothing - scores are clamped non-negative -
-        // and exists only to name the key the service should sort on.
-        matches = await queryDirectory(api, projectId,
-          visibility.concat([{ key: "dirScore", op: "GE", value: 0, asc: false }]), limit, offset);
-      } else {
-        // A term is matched two ways, and the two cannot share a request: `fields` is ANDed, and a
-        // clan matches on its tag *or* its name. They run concurrently and are merged below.
-        //
-        // Name matching is a prefix, not a substring. Cloud Save queries compare, they do not
-        // search, so `GE term` with an upper bound just past the term is the strongest name filter
-        // an index can serve. `startsWith` is re-checked locally because the bound is only correct
-        // if the service compares exactly as JavaScript does.
-        const upperBound = query + "￿";
-        const [byTag, byName] = await Promise.all([
-          queryDirectory(api, projectId,
-            visibility.concat([{ key: "dirTag", op: "EQ", value: query, asc: true }]), limit, 0),
-          queryDirectory(api, projectId,
-            visibility.concat([
-              { key: "dirNameUpper", op: "GE", value: query, asc: true },
-              { key: "dirNameUpper", op: "LT", value: upperBound, asc: true },
-            ]), limit + offset, 0),
-        ]);
+      try {
+        if (query.length === 0) {
+          // Browse: no term, so the whole index is the result set, ordered by score.
+          // `dirScore GE 0` is a filter that excludes nothing - scores are clamped non-negative -
+          // and exists only to name the key the service should sort on.
+          matches = await queryDirectory(api, projectId, "clan_browse",
+            visibility.concat([{ key: "dirScore", op: "GE", value: 0, asc: false }]), limit, offset);
+        } else {
+          // A term is matched two ways, and the two cannot share a request: `fields` is ANDed, and a
+          // clan matches on its tag *or* its name. They run concurrently and are merged below.
+          //
+          // Name matching is a prefix, not a substring. Cloud Save queries compare, they do not
+          // search, so `GE term` with an upper bound just past the term is the strongest name filter
+          // an index can serve. `startsWith` is re-checked locally because the bound is only correct
+          // if the service compares exactly as JavaScript does.
+          //
+          // The tag lookup deliberately drops the visibility facet. A query is served by the index
+          // whose keys it names, and `clan_by_tag` is keyed on `dirTag` alone - adding `dirPublic`
+          // to the filter asks for a compound index that does not exist, and the service rejects
+          // the whole request. Tags are unique, so the hit is filtered for public-ness below
+          // instead, which costs one comparison rather than an index slot.
+          const upperBound = query + "￿";
+          const [byTag, byName] = await Promise.all([
+            queryDirectory(api, projectId, "clan_by_tag",
+              [{ key: "dirTag", op: "EQ", value: query, asc: true }], limit, 0),
+            queryDirectory(api, projectId, "clan_by_name",
+              visibility.concat([
+                { key: "dirNameUpper", op: "GE", value: query, asc: true },
+                { key: "dirNameUpper", op: "LT", value: upperBound, asc: true },
+              ]), limit + offset, 0),
+          ]);
 
-        const byScore = (a, b) => (b.score || 0) - (a.score || 0);
-        const seen = {};
-        const tagHits = [];
-        const nameHits = [];
+          const byScore = (a, b) => (b.score || 0) - (a.score || 0);
+          const seen = {};
+          const tagHits = [];
+          const nameHits = [];
 
-        for (let i = 0; i < byTag.length; i++) {
-          if (seen[byTag[i].clanId]) continue;
-          seen[byTag[i].clanId] = true;
-          tagHits.push(byTag[i]);
+          for (let i = 0; i < byTag.length; i++) {
+            // Stands in for the `dirPublic` filter the tag index cannot carry.
+            if (onlyPublic && byTag[i].isPublic === false) continue;
+            if (seen[byTag[i].clanId]) continue;
+            seen[byTag[i].clanId] = true;
+            tagHits.push(byTag[i]);
+          }
+          for (let i = 0; i < byName.length; i++) {
+            const summary = byName[i];
+            const nameUpper = summary.nameUpper || (summary.name || "").toUpperCase();
+            if (nameUpper.indexOf(query) !== 0) continue;
+            if (seen[summary.clanId]) continue;
+            seen[summary.clanId] = true;
+            nameHits.push(summary);
+          }
+
+          // An exact tag hit is the strongest signal a player can give, so the whole tag group
+          // outranks the whole name group. Sorting the merged list by score instead would let a
+          // high-scoring name match jump ahead of the clan whose tag was typed verbatim.
+          tagHits.sort(byScore);
+          nameHits.sort(byScore);
+          matches = tagHits.concat(nameHits).slice(offset, offset + limit);
         }
-        for (let i = 0; i < byName.length; i++) {
-          const summary = byName[i];
-          const nameUpper = summary.nameUpper || (summary.name || "").toUpperCase();
-          if (nameUpper.indexOf(query) !== 0) continue;
-          if (seen[summary.clanId]) continue;
-          seen[summary.clanId] = true;
-          nameHits.push(summary);
-        }
-
-        // An exact tag hit is the strongest signal a player can give, so the whole tag group
-        // outranks the whole name group. Sorting the merged list by score instead would let a
-        // high-scoring name match jump ahead of the clan whose tag was typed verbatim.
-        tagHits.sort(byScore);
-        nameHits.sort(byScore);
-        matches = tagHits.concat(nameHits).slice(offset, offset + limit);
+      } catch (err) {
+        if (!err || !err.isDirectoryQueryError) throw err;
+        if (logger) logger.error(err.message);
+        return fail("SERVICE_UNAVAILABLE", err.message);
       }
 
       // The service does not report how many rows a query could have returned, so `total` is what
@@ -333,4 +374,4 @@ module.exports = async ({ params, context, logger }) => {
 
 module.exports.params = { action: "String", payload: "JSON" };
 
-// schema-rev 3
+// schema-rev 4
