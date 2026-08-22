@@ -500,10 +500,13 @@
     margin-bottom: 10px;
 }
 
+/* Right-aligned destructive actions, kept clear of the floating notification button's corner for
+   the same reason the voice dock is. */
 .clan-actions {
     flex-direction: row;
     justify-content: flex-end;
     margin-top: 10px;
+    padding-right: 62px;
 }
 
 /* ---------- Chat ---------- */

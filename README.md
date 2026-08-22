@@ -39,10 +39,10 @@ project — the demo scene is `Assets/ClanSystem/Scenes/SocialDemo.unity`.
 - **Clans** — create, join, leave, invite, accept/reject, kick, promote/demote, transfer ownership, disband
 - **Roles** — Owner / Officer / Member, with permissions enforced server-side
 - **Text chat** — global and clan channels, with an emoji picker and `:shortcode:` expansion
-- **Voice chat** — global and clan voice, mic/speaker toggles, per-player mute and volume, speaking indicators
+- **Voice chat** — global and clan voice, mic/speaker toggles, per-player mute and 0-100% volume, speaking indicators, and a roster of who is in the channel before you join it
 - **Friends** — relationships and presence from the Friends service, merged with clan info
 - **Leaderboards** — player rankings and clan rankings, both written only by the server
-- **Notifications** — clan invitations, friend requests and join requests
+- **Notifications** — a draggable floating button with an unread badge, opening a three-category panel: clan invitations, friend requests and join requests
 
 ---
 
@@ -58,11 +58,29 @@ regardless of what the UI shows.
 
 ### Chat and voice
 
-One page for both. The voice bar carries connection state, channel switching, mic and speaker
-toggles, and the live participant list with speaking indicators. Below it, `GLOBAL` / `CLAN` text
-channels with an emoji picker.
+One page for both. The conversation fills the page; the voice rail beside it carries connection
+state, channel switching, the mic and speaker dock, and the live roster.
 
-![Chat with emoji picker](docs/images/chat-emoji.png)
+The roster is the channel the client is **joined** to, not only the one it transmits into - the
+client joins global on login, so somebody already talking in global voice is visible before you
+press Join, which is the moment that information is worth having. Each row carries a mute toggle
+and a volume slider that affect only what you hear; 50% is that player's own loudness.
+
+![Chat and voice with two players in the channel](docs/images/chat-voice.png)
+
+`GLOBAL` / `CLAN` text channels share the same page, with an emoji picker and `:shortcode:`
+expansion.
+
+![Emoji picker](docs/images/chat-emoji.png)
+
+### Notifications
+
+A small floating button, bottom-right by default, draggable anywhere and snapping back to the
+nearest corner with an elastic tween. The red badge counts unread items and caps at `9+`; it is a
+child of the button, so it travels with it. Pressing it opens the panel: three categories, each
+marked read when you look at it.
+
+![Notification panel](docs/images/notifications.png)
 
 ### Leaderboards
 
@@ -91,7 +109,7 @@ Friends on the left with presence and clan tags, the caller's own clan roster on
 | Friends, presence | Friends 1.2.0 | Official social graph and presence events |
 | Clan records, rosters | Cloud Save **private custom data** | Unreachable with a player token — a client cannot read another clan's roster even by forging requests |
 | Per-player state (membership, invites, cooldowns, mutes) | Cloud Save **protected player data** | The player may read their own record but never write it, and it is scoped to the player, so it is deleted with them |
-| Clan directory (browse, search) | Cloud Save **query index** over the clan items | One query instead of a fan-out, and no second copy of each clan that can drift from its profile |
+| Clan directory (browse, search) | Cloud Save **query index** over the clan items | One query instead of a fan-out, and no second copy of each clan that can drift from its profile. Where the indexes have not been created, search falls back to the tag reservation shards, so browse still works |
 | All mutations, permissions | Cloud Code 2.10.4 (JS) | One choke point for authority, validation, rate limiting and write-lock retries |
 | Text and voice chat | Vivox 16.11.0 | One transport for both, with push delivery, server-held history, participant presence and speaking state |
 | Rankings | Leaderboards 2.3.4 | Real ranking service; scores written only from Cloud Code |
@@ -188,8 +206,9 @@ root. Delete it and every script deploys with an empty parameter list, so all ca
 
 1. Open `Assets/ClanSystem/Scenes/SocialDemo.unity` and press Play.
 2. Enter a profile name and press **Sign in anonymously**.
-3. Tabs: Friends, Clan, Chat, Leaderboards, Notifications. **Play a match** submits a clamped score;
-   **Rename** sets your player name.
+3. Tabs: Friends, Clan, Chat, Leaderboards - notifications live behind the floating button in the
+   corner rather than a tab. **Play a match** submits a clamped score; **Rename** sets your player
+   name.
 
 ### Testing with multiple players
 
@@ -197,9 +216,11 @@ Each Authentication profile is a distinct UGS player on the same machine.
 
 - **Sequentially:** sign in as `playerA`, create a clan, note the player id in the header. Stop, Play
   again, sign in as `playerB`. To test invites, send from A, then sign in as B and accept in
-  **Notifications**.
+  the notification button.
 - **Side by side:** make a standalone build (the demo scene is scene 0) and run it next to the
-  Editor with a different profile in each.
+  Editor with a different profile in each, or use **Multiplayer Play Mode** virtual players - set a
+  different profile in each window before signing in, since profiles are what separate the player
+  ids.
 
 ### Automated smoke test
 
@@ -225,10 +246,11 @@ player ids, so a second run inside 60s hits the per-player clan-create cooldown.
 
 ## Known limitations
 
-- **Not yet verified with two simultaneous live clients:** channel revocation on kick/leave, clan
-  switching, speaking indicators with real audio, muting another player, and reconnect behaviour.
-  The code paths exist (`SocialState.ClanMembershipChanged` drives channel resync) but are untested
-  under real concurrency.
+- **Partly verified with two simultaneous live clients.** Verified: the voice roster updating as a
+  second player joins, per-player mute, per-player volume reaching the transport, clan create/join
+  from two clients, and both text channels. Still unverified under real concurrency: channel
+  revocation on kick/leave, clan switching, speaking indicators with real audio, and reconnect
+  behaviour. Those code paths exist (`SocialState.ClanMembershipChanged` drives channel resync).
 - **Disband deletes the clan's leaderboard entry** via the Leaderboards Admin API. Cloud Code's own
   `context.serviceToken` does not carry the *Leaderboards Admin* role, so it falls through to a
   service account whose key pair (`UGS_SA_KEY_ID` / `UGS_SA_SECRET_KEY` in Secret Manager) is sent
